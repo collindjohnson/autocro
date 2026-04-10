@@ -89,16 +89,18 @@ Return:
 
 ## write
 
-### push_variant(slug, patch_path, description)
+### push_variant(slug, patch_path, description, allocation_pct)
 
 PostHog Experiments are built on feature flags. Creating an experiment:
 
-1. Create a feature flag with multivariate payload (control + treatment, 50/50 within coverage).
-2. Create the experiment attached to the flag, with rollout at 0%.
+1. Validate `allocation_pct` is an integer in `[0, 100]`. Reject otherwise.
+2. Create a feature flag with multivariate payload (control + treatment, 50/50 within coverage).
+3. Create the experiment attached to the flag, with rollout set to `allocation_pct`.
 
 Combined call:
 ```bash
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+ROLLOUT=${allocation_pct}   # integer 0-100
 
 # Step 1: feature flag
 FLAG_KEY="autoresearch-${slug}"
@@ -117,7 +119,7 @@ FLAG=$(curl -sS -X POST \
         {"key": "treatment", "rollout_percentage": 50}
       ]
     },
-    "groups": [{"rollout_percentage": 0, "properties": []}]
+    "groups": [{"rollout_percentage": ${ROLLOUT}, "properties": []}]
   },
   "active": true
 }
@@ -150,15 +152,18 @@ EXP_ID=$(echo "$EXP" | jq -r '.id')
 
 Transform:
 ```
-experiment_id = EXP_ID   (cast to string)
-adapter       = "posthog"
-allocation    = 0.0      (PostHog rollout is set to 0 via the feature flag's groups.rollout_percentage)
-started_at    = NOW
+experiment_id  = EXP_ID   (cast to string)
+adapter        = "posthog"
+allocation     = allocation_pct / 100.0
+allocation_pct = allocation_pct
+started_at     = NOW
 ```
 
 Return:
 ```jsonc
-{"experiment_id": "42", "adapter": "posthog", "allocation": 0.0, "started_at": "2026-04-10T12:34:56Z"}
+{"experiment_id": "42", "adapter": "posthog",
+ "allocation": 0.5, "allocation_pct": 50,
+ "started_at": "2026-04-10T12:34:56Z"}
 ```
 
 ### promote(experiment_id, allocation)

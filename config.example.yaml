@@ -194,12 +194,18 @@ prevalidation:
 
   # Phase 2: Lighthouse via harness/lighthouse.sh. Requires Node + internet.
   # Opt-in; disabled by default so the MVP is zero-dep.
+  # NOTE: harness/lighthouse.sh and harness/apply-patch.sh are NOT yet
+  # shipped. Leave enabled: false until you author them, or setup-check
+  # will stop the run.
   lighthouse:
     enabled: false
     categories: [performance, accessibility, best-practices, seo]
 
   # Phase 3: Playwright persona simulation via harness/persona-sim.md.
   # Requires Node + Playwright + baseline_url reachable. Opt-in.
+  # NOTE: harness/persona-sim.md and harness/personas.md are NOT yet
+  # shipped. Leave enabled: false until you author them, or setup-check
+  # will stop the run.
   persona:
     enabled: false
     personas_file: "harness/personas.md"
@@ -250,3 +256,87 @@ git:
   # project at the start of a run. If false, it only uses out-of-tree
   # worktrees under ~/.cache/autoresearch-web/. Default false.
   use_branch: false
+
+# ---------------------------------------------------------------------------
+# Workflow — how the agent delivers results and when it runs
+# ---------------------------------------------------------------------------
+
+workflow:
+  # Review gate for pushing variants to the A/B test tool.
+  #
+  #   "manual" (default) — Every variant that passes pre-validation lands in
+  #     variants/PENDING.md with status: awaiting_review. Nothing is pushed
+  #     to the abtest adapter until a human approves, either by editing the
+  #     status line in PENDING.md to `approved` or via the interactive
+  #     drain prompt that runs at the start of each inner-loop iteration
+  #     when a Claude Code session is active. Approved variants are then
+  #     pushed to the abtest adapter at 0% allocation and the human ramps
+  #     them manually via the adapter's promote() call.
+  #
+  #   "auto" — Variants with composite >= workflow.auto_push_threshold are
+  #     pushed to the abtest adapter immediately AND go LIVE at
+  #     workflow.auto_allocation_pct traffic (default 50 = even split with
+  #     control). The human does NOT ramp manually in this mode — the test
+  #     starts collecting real data the moment it is pushed. Lower-scoring
+  #     variants still queue into PENDING.md for optional review.
+  #     Requires adapters.abtest.id to be non-null.
+  #
+  #   "off" — Never push to the abtest adapter at all. Plan-only mode: the
+  #     inner loop still generates, scores, and ranks variants, but no
+  #     variant ever touches the abtest tool. Useful when you're evaluating
+  #     the framework or don't have an A/B adapter wired up yet.
+  review_mode: "manual"   # "manual" | "auto" | "off"
+
+  # Composite score required for auto mode to bypass the review gate and
+  # push a variant live. Ignored when review_mode is "manual" or "off".
+  # Must be >= prevalidation.thresholds.push; setup-check will reject
+  # configs that violate this. Range: -1 to 1. Recommended: >= 0.55.
+  auto_push_threshold: 0.60
+
+  # Live traffic allocation % assigned when auto-pushing in "auto" mode.
+  # Default 50 means an even A/B split with control — the test runs live
+  # immediately with no human ramp. Valid range: 1-100. Setting this to 0
+  # is rejected by setup-check in auto mode; if you want the 0% staging
+  # flow, use review_mode: "manual" instead.
+  auto_allocation_pct: 50
+
+  # Independently auto-apply passing variants to the parent project's
+  # working tree (git apply + commit). Orthogonal to review_mode — a
+  # variant can be auto-applied to the repo whether it's queued for
+  # review, pushed to the abtest adapter, or both. Default false.
+  auto_apply_to_repo: false
+
+  # Minimum composite score required before auto-applying a patch to the
+  # parent working tree. Only used when auto_apply_to_repo is true.
+  # Range: -1 to 1. Recommended: >= 0.55. Intentionally higher than
+  # auto_push_threshold because a repo commit is harder to roll back than
+  # an A/B test pause.
+  auto_apply_threshold: 0.70
+
+  # Test-duration window — how long a pushed experiment must run before
+  # the outer loop is allowed to pick a winner and queue a follow-up
+  # test. This is the user-facing knob for "let each test bake for N
+  # weeks before iterating"; the harness converts value+unit into hours
+  # internally and enforces outer_loop.min_experiment_hours as a floor.
+  #
+  #   on_winner:
+  #     "queue_followup" (default) — once a winner is declared, feed the
+  #       winning hypothesis back into skills/hypothesize.md as the seed
+  #       for a follow-up variant that iterates on the winning idea.
+  #     "stop" — declare the winner, log it, and take no further action.
+  #     "notify_only" — append a line to variants/RANKED.md and do
+  #       nothing else; do not promote, do not queue follow-ups.
+  test_window:
+    value: 2
+    unit: "weeks"           # "days" | "weeks" | "months"
+    on_winner: "queue_followup"
+
+  # Session-level scheduling. When enabled, setup-check prints a
+  # ready-to-paste cron line so the whole autoresearch session restarts
+  # every N interval_units. Distinct from test_window, which governs
+  # per-experiment baking time. The human pastes the cron entry into
+  # `crontab -e` once — the agent never writes system files.
+  schedule:
+    enabled: false
+    interval_value: 7       # number of interval_units between runs
+    interval_unit: "days"   # "days" | "weeks" | "months"

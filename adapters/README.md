@@ -123,14 +123,21 @@ Return:
 Exact steps to push a variant, get the experiment ID, and get results once it's ready.
 
 ```
-### push_variant(slug, patch_path, description)
-1. POST /experiments with body {name: slug, description, allocation: 0.0, ...}.
-2. Attach the patch: POST /experiments/:id/attachments with patch_path.
-3. Return {experiment_id, adapter: <id>, allocation: 0.0, started_at}.
+### push_variant(slug, patch_path, description, allocation_pct)
+1. Validate allocation_pct is an integer in [0, 100]. 0 is the staging default
+   used in manual mode; values >= 1 mean the test goes live at that split
+   percentage. Reject anything outside [0, 100] with a clear error.
+2. POST /experiments with body {name: slug, description,
+     allocation: allocation_pct / 100.0, ...}.
+3. Attach the patch: POST /experiments/:id/attachments with patch_path.
+4. Return {experiment_id, adapter: <id>, allocation: allocation_pct / 100.0,
+     started_at}.
 
 ### get_experiment(experiment_id)
 GET /experiments/:id/results -> {visitors, lift, ci_low, ci_high, p, status}.
 ```
+
+Every abtest adapter's `push_variant` MUST accept `allocation_pct` as a required argument. Adapters that hardcode 0% staging are considered broken; setup-check will refuse to run with `review_mode: "auto"` against such an adapter. In `review_mode: "manual"` and `review_mode: "off"` the caller always passes `allocation_pct=0`, so legacy hardcoded adapters will still work but will warn.
 
 ### `## idioms`
 
@@ -208,9 +215,14 @@ What to do when the adapter call fails. Must explicitly cover:
 ### abtest
 
 ```jsonc
-// push_variant(slug, patch_path, description) -> returns:
+// push_variant(slug, patch_path, description, allocation_pct) -> returns:
+// allocation_pct is an integer in [0, 100]; the adapter converts to its
+// own internal representation. Manual mode always passes 0; auto mode
+// passes config.workflow.auto_allocation_pct (default 50).
+// `allocation_pct` MAY be echoed back in the response so validate-adapter.md
+// can assert round-trip; it is optional per the schema but recommended.
 {"experiment_id": "<adapter-defined>", "adapter": "<adapter id>",
- "allocation": 0.0, "started_at": "<ISO-8601>"}
+ "allocation": 0.5, "allocation_pct": 50, "started_at": "<ISO-8601>"}
 
 // get_experiment(experiment_id) -> returns:
 {"experiment_id": "<id>", "status": "running|completed|stopped",

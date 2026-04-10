@@ -52,21 +52,29 @@ return read_json("autoresearch-web/fixtures/experiment-sample.json")["experiment
 
 ## write
 
-### push_variant(slug, patch_path, description)
+### push_variant(slug, patch_path, description, allocation_pct)
 
 ```
+assert isinstance(allocation_pct, int) and 0 <= allocation_pct <= 100
 exp_id = f"fixture:{slug}"
 now_iso = <ISO-8601 current time>
+allocation = allocation_pct / 100.0
 write_json("autoresearch-web/variants/<slug>/experiment.json", {
     "experiment_id": exp_id,
     "adapter": "fixture",
-    "allocation": 0.0,
+    "allocation": allocation,
+    "allocation_pct": allocation_pct,
     "started_at": now_iso,
     "description": description
 })
 return {"experiment_id": exp_id, "adapter": "fixture",
-        "allocation": 0.0, "started_at": now_iso}
+        "allocation": allocation, "allocation_pct": allocation_pct,
+        "started_at": now_iso}
 ```
+
+The `allocation_pct` field is echoed back in the response so
+`skills/validate-adapter.md` and the end-to-end smoke test can assert on
+the exact value the caller requested (e.g. 50 in auto mode).
 
 ### promote(experiment_id, allocation)
 

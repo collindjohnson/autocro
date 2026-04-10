@@ -18,15 +18,16 @@
     },
 
     "push_variant": {
-      "description": "Return of push_variant(slug, patch_path, description). Confirms the experiment was created at 0% allocation.",
+      "description": "Return of push_variant(slug, patch_path, description, allocation_pct). Confirms the experiment was created at the requested allocation. `allocation_pct` is an optional echo of the caller-supplied integer percentage so validate-adapter.md can assert round-trip.",
       "type": "object",
       "required": ["experiment_id", "adapter", "allocation", "started_at"],
       "additionalProperties": false,
       "properties": {
-        "experiment_id": { "type": "string", "minLength": 1 },
-        "adapter":       { "type": "string", "minLength": 1 },
-        "allocation":    { "type": "number", "minimum": 0, "maximum": 1 },
-        "started_at":    { "$ref": "#/$defs/_iso_8601" }
+        "experiment_id":  { "type": "string", "minLength": 1 },
+        "adapter":        { "type": "string", "minLength": 1 },
+        "allocation":     { "type": "number", "minimum": 0, "maximum": 1 },
+        "allocation_pct": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "started_at":     { "$ref": "#/$defs/_iso_8601" }
       }
     },
 

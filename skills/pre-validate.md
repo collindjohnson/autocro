@@ -150,7 +150,7 @@ Set `is_stochastic: false` — the rubric + seed combination is designed to be q
 
 If `config.prevalidation.lighthouse.enabled` is true:
 
-1. Check that `harness/lighthouse.sh` exists and Node is available.
+1. `skills/setup-check.md` step 6g is expected to have already confirmed that `harness/lighthouse.sh` and `harness/apply-patch.sh` exist; if this skill is invoked with lighthouse enabled and either helper is missing, stop with an error pointing back at setup-check. Also confirm Node is available.
 2. Create a scratch worktree at `~/.cache/autoresearch-web/worktrees/<slug>/`.
 3. Apply `patch.diff` there via `harness/apply-patch.sh`.
 4. Serve or navigate to `config.project.baseline_url` in that worktree.

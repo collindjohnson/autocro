@@ -2,6 +2,10 @@
 
 Agent output. Each variant is a folder under `variants/v####-kebab-slug/`. This whole directory is gitignored — the agent regenerates it every run.
 
+Two top-level files also live here:
+- `RANKED.md` — rewritten by `skills/rank.md` with the current top candidates.
+- `PENDING.md` — the review queue for `workflow.review_mode: "manual"`, written by `skills/queue-review.md`. Edit the `status:` line on a block to `approved`, `rejected`, or `deferred` to control what the next drain does.
+
 ## Folder format
 
 ```
@@ -50,20 +54,21 @@ Written by `skills/pre-validate.md` after scoring. Contains per-signal raw array
 
 ## experiment.json
 
-Written by `skills/push-experiment.md` (Phase 2) when the variant is successfully pushed to an abtest adapter. Contains:
+Written by `skills/queue-review.md` (drain step, manual mode) or by the inner-loop step 7 cascade (auto mode) when the variant is successfully pushed to an abtest adapter. Contains:
 
 ```json
 {
   "experiment_id": "<adapter-defined>",
   "adapter": "<adapter id>",
-  "allocation": 0.0,
+  "allocation": 0.5,
+  "allocation_pct": 50,
   "started_at": "<ISO-8601>",
   "status": "running | plan_only",
   "description": "<short>"
 }
 ```
 
-The `allocation: 0.0` default is a hard safety rule — the framework never auto-ramps traffic. The human promotes manually via the abtest tool's own UI.
+In `review_mode: "manual"` (the default), `allocation` is always `0.0` and the human ramps manually via the abtest tool. In `review_mode: "auto"`, `allocation` reflects `config.workflow.auto_allocation_pct / 100` — the test goes live immediately at that split.
 
 ## notes.md
 

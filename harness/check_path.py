@@ -27,6 +27,18 @@ import sys
 from pathlib import Path
 
 
+def _matches(path: str, glob: str) -> bool:
+    # fnmatch has no path-segment semantics, so a `**/foo/**` glob only
+    # matches paths with something *before* `foo/`. Strip a leading `**/`
+    # and retry so root-level matches (e.g. `auth/login.tsx` against
+    # `**/auth/**`) are caught as well.
+    if fnmatch.fnmatch(path, glob):
+        return True
+    if glob.startswith("**/") and fnmatch.fnmatch(path, glob[3:]):
+        return True
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="deny-glob enforcement helper (stdlib only)",
@@ -58,7 +70,7 @@ def main():
 
     for path in candidates:
         for i, glob in enumerate(deny_globs):
-            if fnmatch.fnmatch(path, glob):
+            if _matches(path, glob):
                 sys.stderr.write(
                     f"DENY GLOB VIOLATION: cannot write patch\n"
                     f"variant: {args.variant_slug}\n"

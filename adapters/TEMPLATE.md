@@ -86,11 +86,12 @@ Repeat this block for each implemented capability.
 
 (abtest adapters only; delete this section for analytics and heatmap adapters)
 
-### push_variant(slug, patch_path, description)
+### push_variant(slug, patch_path, description, allocation_pct)
 
-1. TODO: create the experiment in the tool at 0% allocation.
-2. TODO: attach the patch as documentation (link, upload, or metadata).
-3. TODO: return `{"experiment_id": ..., "adapter": "<id>", "allocation": 0.0, "started_at": "<ISO-8601>"}`.
+1. Validate `allocation_pct` is an integer in `[0, 100]`. The caller passes `0` in manual/off mode and `config.workflow.auto_allocation_pct` (default 50) in auto mode. Reject anything outside the range with a clear error.
+2. TODO: create the experiment in the tool. Set the variant traffic to `allocation_pct / 100.0` in whatever field your tool uses (`coverage`, `weight`, `traffic_split`, etc.). Do NOT hardcode 0%.
+3. TODO: attach the patch as documentation (link, upload, or metadata).
+4. TODO: return `{"experiment_id": ..., "adapter": "<id>", "allocation": <allocation_pct / 100.0>, "started_at": "<ISO-8601>"}`.
 
 ### get_experiment(experiment_id)
 
