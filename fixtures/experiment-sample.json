@@ -1,0 +1,66 @@
+{
+  "_comment": "Canned experiment results used by adapters/abtest/fixture.md. Contains a mix of winner / loser / measuring statuses so the outer loop's promotion logic is exercised during verification.",
+
+  "experiments": [
+    {
+      "experiment_id": "fixture:v0001-cta-start-free-trial",
+      "status": "completed",
+      "visitors": 8420,
+      "lift": 0.037,
+      "ci_low": 0.012,
+      "ci_high": 0.061,
+      "p": 0.032,
+      "started_at": "2026-03-25T00:00:00Z",
+      "ended_at": "2026-04-08T00:00:00Z",
+      "description": "replace Learn more with Start free trial on hero"
+    },
+    {
+      "experiment_id": "fixture:v0002-pricing-three-tiers",
+      "status": "completed",
+      "visitors": 6120,
+      "lift": -0.004,
+      "ci_low": -0.021,
+      "ci_high": 0.013,
+      "p": 0.672,
+      "started_at": "2026-03-20T00:00:00Z",
+      "ended_at": "2026-04-03T00:00:00Z",
+      "description": "drop fourth pricing tier, keep starter/team/business"
+    },
+    {
+      "experiment_id": "fixture:v0003-signup-fewer-fields",
+      "status": "running",
+      "visitors": 3240,
+      "lift": 0.018,
+      "ci_low": -0.003,
+      "ci_high": 0.039,
+      "p": 0.142,
+      "started_at": "2026-04-02T00:00:00Z",
+      "ended_at": null,
+      "description": "remove phone and country from signup form"
+    },
+    {
+      "experiment_id": "fixture:v0004-hero-concrete-value-prop",
+      "status": "completed",
+      "visitors": 9120,
+      "lift": 0.021,
+      "ci_low": 0.003,
+      "ci_high": 0.039,
+      "p": 0.041,
+      "started_at": "2026-03-27T00:00:00Z",
+      "ended_at": "2026-04-10T00:00:00Z",
+      "description": "replace hero fluff with concrete 5-min deploy promise"
+    },
+    {
+      "experiment_id": "fixture:v0005-social-proof-real-numbers",
+      "status": "running",
+      "visitors": 1840,
+      "lift": 0.008,
+      "ci_low": -0.014,
+      "ci_high": 0.030,
+      "p": 0.488,
+      "started_at": "2026-04-04T00:00:00Z",
+      "ended_at": null,
+      "description": "replace trusted by leading companies with 4200 teams ship with acme cloud"
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Acme Cloud</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="nav">
+    <a href="/" class="logo">Acme Cloud</a>
+    <nav>
+      <a href="/features">Features</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/docs">Docs</a>
+      <a href="/login" class="btn btn-ghost">Log in</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Unlock your team's potential with cutting-edge cloud solutions</h1>
+      <p class="hero-sub">Acme Cloud empowers modern teams to seamlessly leverage the power of the cloud in today's fast-paced world. Take your infrastructure to the next level with our revolutionary platform.</p>
+      <a href="/signup" class="btn btn-primary">Learn more</a>
+    </section>
+
+    <section class="social-proof">
+      <p class="trusted">Trusted by leading companies worldwide</p>
+    </section>
+
+    <section class="features">
+      <h2>Amazing features that transform your workflow</h2>
+      <div class="feature-grid">
+        <div class="feature">
+          <h3>Scalable</h3>
+          <p>Our best-in-class infrastructure scales seamlessly to meet your needs.</p>
+        </div>
+        <div class="feature">
+          <h3>Secure</h3>
+          <p>Enterprise-grade security that lets you focus on what matters most.</p>
+        </div>
+        <div class="feature">
+          <h3>Fast</h3>
+          <p>Lightning-fast performance powered by next-generation technology.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="pricing" class="pricing">
+      <h2>Pricing</h2>
+      <div class="pricing-grid">
+        <div class="plan">
+          <h3>Starter</h3>
+          <p class="price">$29/mo</p>
+          <ul>
+            <li>5 projects</li>
+            <li>Up to 10 GB storage</li>
+            <li>Community support</li>
+          </ul>
+          <a href="/signup?plan=starter" class="btn btn-ghost">Learn more</a>
+        </div>
+        <div class="plan featured">
+          <h3>Team</h3>
+          <p class="price">$99/mo</p>
+          <ul>
+            <li>Unlimited projects</li>
+            <li>100 GB storage</li>
+            <li>Priority support</li>
+            <li>Team permissions</li>
+          </ul>
+          <a href="/signup?plan=team" class="btn btn-primary">Learn more</a>
+        </div>
+        <div class="plan">
+          <h3>Business</h3>
+          <p class="price">$299/mo</p>
+          <ul>
+            <li>Unlimited projects</li>
+            <li>1 TB storage</li>
+            <li>SSO / SAML</li>
+            <li>99.9% SLA</li>
+          </ul>
+          <a href="/signup?plan=business" class="btn btn-ghost">Learn more</a>
+        </div>
+        <div class="plan">
+          <h3>Enterprise</h3>
+          <p class="price">Contact us</p>
+          <ul>
+            <li>Custom quota</li>
+            <li>Dedicated region</li>
+            <li>Named account manager</li>
+            <li>Custom SLA</li>
+          </ul>
+          <a href="/contact" class="btn btn-ghost">Learn more</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="signup" class="signup">
+      <h2>Sign up</h2>
+      <form action="/signup" method="post">
+        <label>First name<input type="text" name="first_name" required></label>
+        <label>Last name<input type="text" name="last_name" required></label>
+        <label>Company name<input type="text" name="company" required></label>
+        <label>Company size<select name="company_size" required>
+          <option value="">Select...</option>
+          <option>1-10</option>
+          <option>11-50</option>
+          <option>51-200</option>
+          <option>201+</option>
+        </select></label>
+        <label>Job title<input type="text" name="title" required></label>
+        <label>Work email<input type="email" name="email" required></label>
+        <label>Phone number<input type="tel" name="phone" required></label>
+        <label>Country<input type="text" name="country" required></label>
+        <label>Password<input type="password" name="password" required></label>
+        <label>Confirm password<input type="password" name="password2" required></label>
+        <label><input type="checkbox" name="terms" required> I agree to the terms</label>
+        <button type="submit" class="btn btn-submit" disabled>Submit</button>
+      </form>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Acme Cloud</p>
+  </footer>
+</body>
+</html>

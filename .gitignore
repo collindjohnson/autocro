@@ -1,23 +1,20 @@
-# Python-generated files
+# Per-project config with credentials / tool IDs
+config.yaml
+
+# Agent output
+results.tsv
+run.log
+variants/v*/
+variants/RANKED.md
+
+# Caches
+cache/
+.cache/
+harness/node_modules/
+harness/package-lock.json
+
+# Generic python/env leftovers
 __pycache__/
 *.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-.venv
-worktrees/
-results/
-queue/
-
-# Agent prompt files (generated per-session by launchers)
-CLAUDE.md
-AGENTS.md
-
-# Experimental code/artifacts
-dev/
-
-# Results file
-results.tsv
+.venv/
+.DS_Store

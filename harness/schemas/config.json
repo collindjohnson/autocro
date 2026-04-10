@@ -1,0 +1,204 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "config.json",
+  "description": "Schema for autoresearch-web/config.yaml. Mirrors the fields documented in config.example.yaml. The validator (harness/validate.py) loads this with `validate.py config --stdin` where stdin is config.yaml converted to JSON. Post-schema rules (weights sum ~1.0, adapter file existence, *_env var resolution, literal-secret heuristic) run inside validate.py after the schema passes — they cannot be expressed in draft-07 alone.",
+
+  "type": "object",
+  "required": ["project", "goal", "adapters", "guardrails", "prevalidation", "outer_loop", "budget", "mode"],
+  "additionalProperties": false,
+
+  "properties": {
+
+    "project": {
+      "type": "object",
+      "required": ["root"],
+      "additionalProperties": false,
+      "properties": {
+        "root":         { "type": "string", "minLength": 1 },
+        "stack":        {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "enum": ["nextjs", "nuxt", "astro", "sveltekit", "remix", "rails", "django", "wordpress", "plain-html", "unknown"] }
+          ]
+        },
+        "baseline_url": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "goal": {
+      "type": "object",
+      "required": ["name", "event", "target_paths"],
+      "additionalProperties": false,
+      "properties": {
+        "name":  { "type": "string", "minLength": 1 },
+        "event": { "type": "string", "minLength": 1 },
+        "target_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "focus": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1 }
+          ]
+        }
+      }
+    },
+
+    "adapters": {
+      "type": "object",
+      "required": ["analytics", "heatmap", "abtest"],
+      "additionalProperties": true,
+      "properties": {
+        "analytics": {
+          "type": "object",
+          "required": ["id"],
+          "additionalProperties": true,
+          "properties": {
+            "id": { "oneOf": [ { "type": "null" }, { "type": "string", "minLength": 1 } ] }
+          }
+        },
+        "heatmap": {
+          "type": "object",
+          "required": ["id"],
+          "additionalProperties": true,
+          "properties": {
+            "id": { "oneOf": [ { "type": "null" }, { "type": "string", "minLength": 1 } ] }
+          }
+        },
+        "abtest": {
+          "type": "object",
+          "required": ["id"],
+          "additionalProperties": true,
+          "properties": {
+            "id": { "oneOf": [ { "type": "null" }, { "type": "string", "minLength": 1 } ] }
+          }
+        }
+      }
+    },
+
+    "guardrails": {
+      "type": "object",
+      "required": ["read_globs", "deny_globs", "max_diff_lines", "auto_apply"],
+      "additionalProperties": false,
+      "properties": {
+        "read_globs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "deny_globs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "max_diff_lines": { "type": "integer", "minimum": 1 },
+        "auto_apply":     { "type": "boolean" }
+      }
+    },
+
+    "prevalidation": {
+      "type": "object",
+      "required": ["weights", "thresholds", "heuristic", "llm_judge", "lighthouse", "persona"],
+      "additionalProperties": false,
+      "properties": {
+        "weights": {
+          "type": "object",
+          "required": ["lighthouse", "llm_judge", "persona", "heuristic"],
+          "additionalProperties": false,
+          "properties": {
+            "lighthouse": { "type": "number", "minimum": 0, "maximum": 1 },
+            "llm_judge":  { "type": "number", "minimum": 0, "maximum": 1 },
+            "persona":    { "type": "number", "minimum": 0, "maximum": 1 },
+            "heuristic":  { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "required": ["discard", "push"],
+          "additionalProperties": false,
+          "properties": {
+            "discard": { "type": "number", "minimum": -1, "maximum": 1 },
+            "push":    { "type": "number", "minimum": -1, "maximum": 1 }
+          }
+        },
+        "heuristic": {
+          "type": "object",
+          "required": ["enabled"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "llm_judge": {
+          "type": "object",
+          "required": ["enabled", "panel_size", "seed"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled":    { "type": "boolean" },
+            "panel_size": { "type": "integer", "minimum": 1 },
+            "seed":       { "type": "integer" }
+          }
+        },
+        "lighthouse": {
+          "type": "object",
+          "required": ["enabled"],
+          "additionalProperties": true,
+          "properties": {
+            "enabled":    { "type": "boolean" },
+            "categories": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["performance", "accessibility", "best-practices", "seo", "pwa"] }
+            }
+          }
+        },
+        "persona": {
+          "type": "object",
+          "required": ["enabled"],
+          "additionalProperties": true,
+          "properties": {
+            "enabled":       { "type": "boolean" },
+            "personas_file": { "type": "string", "minLength": 1 },
+            "n_visits":      { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+
+    "outer_loop": {
+      "type": "object",
+      "required": ["check_every", "min_experiment_hours", "required_significance"],
+      "additionalProperties": false,
+      "properties": {
+        "check_every":           { "type": "integer", "minimum": 1 },
+        "min_experiment_hours":  { "type": "integer", "minimum": 1 },
+        "required_significance": { "type": "number",  "minimum": 0, "maximum": 1 }
+      }
+    },
+
+    "budget": {
+      "type": "object",
+      "required": ["max_variants_per_run", "max_wall_minutes"],
+      "additionalProperties": false,
+      "properties": {
+        "max_variants_per_run": { "type": "integer", "minimum": 1 },
+        "max_wall_minutes":     { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "mode": {
+      "type": "string",
+      "enum": ["live", "fixture"]
+    },
+
+    "git": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "use_branch": { "type": "boolean" }
+      }
+    }
+
+  }
+}

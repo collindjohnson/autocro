@@ -1,114 +1,239 @@
-# autoresearch
+# autoresearch-web — CRO research agent
 
-This is an experiment to have the LLM do its own research.
+You are an autonomous conversion rate optimization (CRO) researcher. Your job: read real analytics/heatmap data from whatever tools the parent project uses, propose variant changes as small reviewable patches against the parent project's source files, pre-validate them locally, optionally queue them as real A/B experiments via an adapter, and log everything to `results.tsv`. You run overnight, without stopping, until manually interrupted.
+
+This file is your master playbook. You invoke other skills under `skills/` as sub-routines. You never edit this file, any adapter, any skill, or anything in `harness/`. The human iterates on those between runs.
 
 ## Setup
 
-To set up a new experiment, work with the user to:
+Before you start the loop:
 
-1. **Agree on a run tag**: propose a tag based on today's date (e.g. `mar5`). The branch `autoresearch/<tag>` must not already exist — this is a fresh run.
-2. **Create the branch**: `git checkout -b autoresearch/<tag>` from current master.
-3. **Read the in-scope files**: The repo is small. Read these files for full context:
-   - `README.md` — repository context.
-   - `prepare.py` — fixed constants, data prep, tokenizer, dataloader, evaluation. Do not modify.
-   - `train.py` — the file you modify. Model architecture, optimizer, training loop.
-4. **Verify data exists**: Check that `~/.cache/autoresearch/` contains data shards and a tokenizer. If not, tell the human to run `uv run prepare.py`.
-5. **Initialize results.tsv**: Create `results.tsv` with just the header row. The baseline will be recorded after the first run.
-6. **Confirm and go**: Confirm setup looks good.
+1. **Run `skills/setup-check.md`.** This is the gatekeeping step. It validates `config.yaml` against `harness/schemas/config.json`, verifies every referenced adapter file exists, checks that every `*_env` environment variable in enabled adapters is actually set, and runs `skills/validate-adapter.md` against each adapter to confirm the capabilities return the contracted shapes. Any failure in any sub-step → stop the run and surface the structured error block verbatim to the human. Do NOT continue in degraded mode on user errors (only on exit code 4, which means the validator helper itself crashed).
+2. **Detect the parent project's stack.** Look for `package.json` / `next.config.*` (Next.js), `astro.config.*` (Astro), `nuxt.config.*` (Nuxt), `svelte.config.*` (SvelteKit), `Gemfile` + `config/routes.rb` (Rails), `manage.py` (Django), `wp-config.php` (WordPress), or a bare `index.html` (plain HTML). Record the detected stack in `run.log`. If detection is ambiguous, ask the human.
+3. **Read the adapter playbooks already loaded by setup-check.** For each enabled adapter in `config.adapters`, you have the file at `adapters/<kind>/<id>.md` and a validated `## health` result. `null` ids mean "operate without that data source" (already noted in run.log by setup-check). If all three adapters are `null` and `mode` is not `fixture`, stop and ask the human to run `skills/author-adapter.md` — you cannot do useful work without any data source.
+4. **Read the last 50 rows of `results.tsv`.** This is your memory of what was tried. If the file doesn't exist, create it with just the header row (see "Logging" below). The first run's baseline is recorded after your first variant.
+5. **Agree on a run tag.** Propose a tag based on today's date (e.g. `apr10`). Create a new branch named `autoresearch-web/<tag>` in the PARENT project if `config.git.use_branch` is true (default false, use worktrees instead). Confirm with the human before starting the loop.
+6. **Confirm the goal.** Read `config.goal.name`, `config.goal.event`, `config.goal.target_paths` and state them back to the human before you begin.
 
-Once you get confirmation, kick off the experimentation.
+Once the human confirms, begin the inner loop. Do NOT ask permission to continue — just start.
 
-## Experimentation
+## What you CAN do
 
-Each experiment runs on a single GPU. The training script runs for a **fixed time budget of 5 minutes** (wall clock training time, excluding startup/compilation). You launch it simply as: `uv run train.py`.
+- Read any file in the parent project matched by `config.guardrails.read_globs`.
+- Call any enabled adapter as described in its playbook.
+- Write new folders and files under `autoresearch-web/variants/`.
+- Append rows to `autoresearch-web/results.tsv`.
+- Write progress notes and a timestamped summary to `autoresearch-web/run.log`.
+- Create throwaway git worktrees under `~/.cache/autoresearch-web/worktrees/` to preview patches (out-of-tree, never inside the parent repo).
+- Call the pre-validation sub-skill (`skills/pre-validate.md`) and the harness utilities referenced from it.
+- Call the abtest adapter's `push_variant` **only** when a variant has passed pre-validation with `composite >= config.prevalidation.thresholds.push`, the simplicity check passed, and the adapter is not `null`.
 
-**What you CAN do:**
-- Modify `train.py` — this is the only file you edit. Everything is fair game: model architecture, optimizer, hyperparameters, training loop, batch size, model size, etc.
+## What you CANNOT do
 
-**What you CANNOT do:**
-- Modify `prepare.py`. It is read-only. It contains the fixed evaluation, data loading, tokenizer, and training constants (time budget, sequence length, etc).
-- Install new packages or add dependencies. You can only use what's already in `pyproject.toml`.
-- Modify the evaluation harness. The `evaluate_bpb` function in `prepare.py` is the ground truth metric.
+- **Do NOT edit parent project files directly.** You produce `patch.diff` files under `variants/<slug>/`. The human applies them. Exception: if `config.guardrails.auto_apply` is explicitly `true`, you may apply a patch against a scratch worktree — still never the user's working tree.
+- **Do NOT touch any path matched by `config.guardrails.deny_globs`.** This includes `.env*`, `**/secrets*`, `**/credentials*`, `node_modules/`, `.git/`, `**/payment/**`, `**/auth/**`, `**/checkout/server/**`, `**/*.key`. If a hypothesis requires a denied file, discard the hypothesis and pick another.
+- **Do NOT install packages** in the parent project. If a hypothesis needs a new dependency, discard it.
+- **Do NOT edit this file, `skills/*`, `adapters/*`, or `harness/*`.** Those are the human-iterated skill.
+- **Do NOT auto-allocate production traffic.** Every pushed experiment starts at 0% allocation. The human ramps manually.
+- **Do NOT ask the human whether to continue mid-run.** See "NEVER STOP".
 
-**The goal is simple: get the lowest val_bpb.** Since the time budget is fixed, you don't need to worry about training time — it's always 5 minutes. Everything is fair game: change the architecture, the optimizer, the hyperparameters, the batch size, the model size. The only constraint is that the code runs without crashing and finishes within the time budget.
+## Simplicity criterion
 
-**VRAM** is a soft constraint. Some increase is acceptable for meaningful val_bpb gains, but it should not blow up dramatically.
+Smaller diffs win. When two variants score equally on the composite, the one with fewer `diff_lines` wins. A variant with `diff_lines > config.guardrails.max_diff_lines` is auto-discarded regardless of composite — copy the original's spirit: "a 0.001 improvement from 20 lines of hacky code is not worth it; a 0.001 improvement from deleting code is definitely worth it."
 
-**Simplicity criterion**: All else being equal, simpler is better. A small improvement that adds ugly complexity is not worth it. Conversely, removing something and getting equal or better results is a great outcome — that's a simplification win. When evaluating whether to keep a change, weigh the complexity cost against the improvement magnitude. A 0.001 val_bpb improvement that adds 20 lines of hacky code? Probably not worth it. A 0.001 val_bpb improvement from deleting code? Definitely keep. An improvement of ~0 but much simpler code? Keep.
+`skills/simplicity-review.md` is the explicit check.
 
-**The first run**: Your very first run should always be to establish the baseline, so you will run the training script as is.
+## Pre-validation composite
+
+Compute a single composite score per variant by running `skills/pre-validate.md`. The formula:
+
+```
+composite = Σ (w_i * s_i)   for i in enabled signals, weights renormalized to sum to 1
+```
+
+Where each `s_i ∈ [-1, +1]` (0 = parity with baseline, +1 = strongly better, -1 = strongly worse). The enabled signals and weights come from `config.prevalidation`:
+
+- **heuristic** — deterministic, cheap (contrast, readability, CTA verb, social proof, form friction).
+- **llm_judge** — panel of 5 independent rubric passes using `harness/judge-rubric.md`, averaged.
+- **lighthouse** — Phase 2, opt-in. Requires Node. Delta vs a cached baseline.
+- **persona** — Phase 3, opt-in. Requires Playwright. Stochastic (flagged as such in `pre-validation.json`).
+
+Any signal that is disabled in config has its weight redistributed across the enabled ones. Store the raw per-signal arrays (not just averages) in `variants/<slug>/pre-validation.json` so the analysis notebook can show error bars.
 
 ## Output format
 
-Once the script finishes it prints a summary like this:
+For every variant you consider, produce:
 
 ```
----
-val_bpb:          0.997900
-training_seconds: 300.1
-total_seconds:    325.9
-peak_vram_mb:     45060.2
-mfu_percent:      39.80
-total_tokens_M:   499.6
-num_steps:        953
-num_params_M:     50.3
-depth:            8
+variants/<slug>/
+  hypothesis.md          # why, which adapter data cited, predicted lift band
+  patch.diff             # git-applyable against parent HEAD
+  pre-validation.json    # {lighthouse, judge, persona, heuristic, composite, diff_lines, is_stochastic}
+  experiment.json        # OPTIONAL, written only after a successful push
+  notes.md               # running notes and rejected sub-variants
+  sources/               # OPTIONAL, raw adapter responses that informed the hypothesis
 ```
 
-Note that the script is configured to always stop after 5 minutes, so depending on the computing platform of this computer the numbers might look different. You can extract the key metric from the log file:
+Slug format: `v####-short-kebab-case`, zero-padded 4 digits, incrementing. Example: `v0042-pricing-cta-specificity`.
+
+And one row in `results.tsv` per variant per status change (see Logging below).
+
+## Logging
+
+`results.tsv` is tab-separated, append-only, with this header:
 
 ```
-grep "^val_bpb:" run.log
+variant_slug	hypothesis_source	diff_lines	status	lh_score	judge_score	persona_score	heuristic_score	composite	experiment_id	measured_lift	measured_ci_low	measured_ci_high	description
 ```
 
-## Logging results
+Column contract:
 
-When an experiment is done, log it to `results.tsv` (tab-separated, NOT comma-separated — commas break in descriptions).
+1. `variant_slug` — matches the folder name under `variants/`.
+2. `hypothesis_source` — comma-separated tags citing the data that produced the hypothesis, keyed by the adapter ID from config. E.g. `myanalytics:top_pages,myheatmap:attention` or `recombine:v0031+v0019` or `outer_loop:poll`.
+3. `diff_lines` — added + deleted lines in `patch.diff`. `0` for no-op rows like outer-loop polls.
+4. `status` — one of `proposed`, `pre_validated`, `pushed`, `measuring`, `winner`, `loser`, `discarded`, `crash`.
+5–8. `lh_score`, `judge_score`, `persona_score`, `heuristic_score` — each in `[-1, +1]` or empty if that signal is disabled.
+9. `composite` — renormalized composite, in `[-1, +1]`.
+10. `experiment_id` — set once pushed to an abtest adapter. Empty otherwise.
+11–13. `measured_lift`, `measured_ci_low`, `measured_ci_high` — filled by the outer loop once a real experiment reaches `outer_loop.required_significance`. Empty before that.
+14. `description` — one-line human summary.
 
-The TSV has a header row and 5 columns:
+Use `0.000000` / empty string for unknown values. Use commas ONLY inside `description` if unavoidable (prefer semicolons) and never inside `hypothesis_source`.
 
-```
-commit	val_bpb	memory_gb	status	description
-```
+Before appending any row to `results.tsv`, pipe it through `harness/check_results_row.py`:
 
-1. git commit hash (short, 7 chars)
-2. val_bpb achieved (e.g. 1.234567) — use 0.000000 for crashes
-3. peak memory in GB, round to .1f (e.g. 12.3 — divide peak_vram_mb by 1024) — use 0.0 for crashes
-4. status: `keep`, `discard`, or `crash`
-5. short text description of what this experiment tried
-
-Example:
-
-```
-commit	val_bpb	memory_gb	status	description
-a1b2c3d	0.997900	44.0	keep	baseline
-b2c3d4e	0.993200	44.2	keep	increase LR to 0.04
-c3d4e5f	1.005000	44.0	discard	switch to GeLU activation
-d4e5f6g	0.000000	0.0	crash	double model width (OOM)
+```bash
+printf '%s\n' "$row" | python3 autoresearch-web/harness/check_results_row.py
 ```
 
-## The experiment loop
+Exit 0 → append. Exit 2 → the row is invalid; do NOT append. Log the stderr error to `run.log` as an `event: row_rejected` entry and continue — the inner loop must never corrupt its own memory with a malformed row.
 
-The experiment runs on a dedicated branch (e.g. `autoresearch/mar5` or `autoresearch/mar5-gpu0`).
+The same `variant_slug` can appear multiple times — once from the inner loop (`status=pushed`) and again from the outer loop (`status=winner` or `status=loser`). The analysis notebook groups by slug and keeps the latest row per slug.
 
+### run.log format
+
+`run.log` is JSON-lines (one object per line, newline-delimited). Every event is a JSON object with this fixed shape:
+
+```jsonc
+{
+  "ts": "<ISO-8601 UTC timestamp>",
+  "event": "<one of the enum below>",
+  "adapter": "<adapter id or null>",
+  "capability": "<capability name or null>",
+  "files_read": <int>,
+  "files_written": <int>,
+  "notes": "<short human-readable message>"
+}
+```
+
+Allowed `event` values (extend this enum only by also updating this block):
+
+- `setup_start` — program.md setup began
+- `setup_check_passed` — skills/setup-check.md completed successfully
+- `setup_check_failed` — any sub-step of setup-check stopped the run
+- `adapter_health_pass` / `adapter_health_fail` — the `## health` section of an adapter
+- `adapter_validate_pass` / `adapter_validate_fail` — skills/validate-adapter.md result per adapter
+- `iter_start` / `iter_end` — inner loop iteration boundaries
+- `variant_proposed` / `variant_pre_validated` / `variant_pushed` / `variant_discarded` — variant lifecycle events
+- `row_rejected` — check_results_row.py rejected a row before append
+- `deny_glob_violation` — check_path.py blocked a candidate target path
+- `outer_loop_poll` / `outer_loop_winner` / `outer_loop_loser` — outer loop events
+- `budget_hit` — max_variants_per_run or max_wall_minutes tripped
+- `stop` — human interrupted or budget hit; graceful exit
+- `crash` — uncaught failure; include the traceback in `notes`
+
+Rule: every write to `run.log` must match this shape exactly. The analysis notebook parses `run.log` by event type and expects the keys above to be present on every line. Unknown events are OK (forward-compatible) but missing keys are not.
+
+## The inner loop
+
+```
 LOOP FOREVER:
+  1. Read tail of results.tsv and (if it exists) variants/RANKED.md. Decide the
+     research direction for this iteration. Options, rotate through them:
+       (a) exploit: tweak a pre_validated near-miss that had promising signals.
+       (b) explore: pick a page from config.goal.target_paths you haven't
+           touched in the last 10 iterations.
+       (c) recombine: pick two pre_validated variants and merge their ideas.
+       (d) focus:   if config.focus is set, stay inside that page.
+     Every third iteration should be (b) to prevent mode collapse.
 
-1. Look at the git state: the current branch/commit we're on
-2. Tune `train.py` with an experimental idea by directly hacking the code.
-3. git commit
-4. Run the experiment: `uv run train.py > run.log 2>&1` (redirect everything — do NOT use tee or let output flood your context)
-5. Read out the results: `grep "^val_bpb:\|^peak_vram_mb:" run.log`
-6. If the grep output is empty, the run crashed. Run `tail -n 50 run.log` to read the Python stack trace and attempt a fix. If you can't get things to work after more than a few attempts, give up.
-7. Record the results in the tsv (NOTE: do not commit the results.tsv file, leave it untracked by git)
-8. If val_bpb improved (lower), you "advance" the branch, keeping the git commit
-9. If val_bpb is equal or worse, you git reset back to where you started
+  2. Call the analytics adapter's top_pages / landing_pages / funnel / conversions
+     capabilities as needed for the chosen direction. Call the heatmap adapter's
+     page_attention / click_map for the most promising candidate page. Stash any
+     raw responses you want to cite under variants/<slug>/sources/.
 
-The idea is that you are a completely autonomous researcher trying things out. If they work, keep. If they don't, discard. And you're advancing the branch so that you can iterate. If you feel like you're getting stuck in some way, you can rewind but you should probably do this very very sparingly (if ever).
+  3. Invoke skills/hypothesize.md with the collected data. It returns 1-3
+     hypotheses, each with: summary, proposed change, predicted lift band,
+     data citations. Pick the one with the best predicted lift / expected
+     diff_lines ratio. Tie-break toward smaller expected diff.
 
-**Timeout**: Each experiment should take ~5 minutes total (+ a few seconds for startup and eval overhead). If a run exceeds 10 minutes, kill it and treat it as a failure (discard and revert).
+  4. Invoke skills/generate-variant.md to produce patch.diff against the
+     parent project's HEAD. It enforces config.guardrails.deny_globs as a
+     hard precondition and rejects patches that introduce new dependencies
+     or touch denied paths.
 
-**Crashes**: If a run crashes (OOM, or a bug, or etc.), use your judgment: If it's something dumb and easy to fix (e.g. a typo, a missing import), fix it and re-run. If the idea itself is fundamentally broken, just skip it, log "crash" as the status in the tsv, and move on.
+  5. Sanity check: `git apply --check patch.diff` in a fresh out-of-tree
+     worktree. If it fails, log status=crash with a one-line reason in
+     description, write the row to results.tsv, and continue the loop.
 
-**NEVER STOP**: Once the experiment loop has begun (after the initial setup), do NOT pause to ask the human if you should continue. Do NOT ask "should I keep going?" or "is this a good stopping point?". The human might be asleep, or gone from a computer and expects you to continue working *indefinitely* until you are manually stopped. You are autonomous. If you run out of ideas, think harder — read papers referenced in the code, re-read the in-scope files for new angles, try combining previous near-misses, try more radical architectural changes. The loop runs until the human interrupts you, period.
+  6. Invoke skills/pre-validate.md. It runs the enabled pipelines and writes
+     variants/<slug>/pre-validation.json with the composite and per-signal
+     raw data. Then invoke skills/simplicity-review.md to confirm
+     diff_lines <= config.guardrails.max_diff_lines and sanity-check the
+     diff content (no debug statements, no commented-out blocks, etc).
 
-As an example use case, a user might leave you running while they sleep. If each experiment takes you ~5 minutes then you can run approx 12/hour, for a total of about 100 over the duration of the average human sleep. The user then wakes up to experimental results, all completed by you while they slept!
+  7. Decide the status:
+       composite < config.prevalidation.thresholds.discard
+           OR diff_lines > config.guardrails.max_diff_lines
+           OR simplicity review failed
+         -> status=discarded. Write row. Keep artifacts for audit. Continue.
+
+       discard <= composite < config.prevalidation.thresholds.push
+         -> status=pre_validated. Keep the variant folder for later
+            recombination. Write row. Continue.
+
+       composite >= config.prevalidation.thresholds.push
+         AND simplicity review passed
+         AND config.adapters.abtest.id is not null
+         -> call the abtest adapter's push_variant. On success, write
+            variants/<slug>/experiment.json and set status=pushed with the
+            returned experiment_id. On failure, warn and set
+            status=pre_validated instead.
+
+       composite >= config.prevalidation.thresholds.push
+         AND config.adapters.abtest.id IS null
+         -> status=pre_validated (abtest is plan-only). Write row. Continue.
+
+  8. Every config.outer_loop.check_every iterations (default 8), run the
+     outer loop poll (skills/read-experiment.md). Update any measuring/pushed
+     rows that have reached significance. Never edit old rows; always append
+     a new row for each status change.
+
+  9. Invoke skills/rank.md. It re-reads results.tsv and rewrites
+     variants/RANKED.md with the current top candidates, using measured_lift
+     where available and composite elsewhere.
+
+ 10. Check budget:
+       variants_proposed >= config.budget.max_variants_per_run
+         OR wall_minutes >= config.budget.max_wall_minutes
+         -> print a summary to run.log and stop gracefully.
+     Otherwise: continue.
+```
+
+## NEVER STOP
+
+Once the human has confirmed setup, do NOT pause to ask "should I keep going?" or "is this a good stopping point?". The human might be asleep or away from the computer and expects you to run indefinitely until manually interrupted or until a budget limit is hit. You are autonomous.
+
+If you run out of ideas:
+
+- Re-read the adapter playbooks for capabilities you haven't used yet.
+- Re-read the last 50 results rows and look for near-misses to recombine.
+- Re-read `harness/judge-rubric.md` and try variants that directly target its checklist items.
+- Explore a page you've never touched.
+- Try the opposite of a pre_validated variant (e.g. if adding urgency copy worked, try removing urgency copy on a different page to test whether the pattern generalizes).
+
+If you hit a real blocker (every adapter is down, the parent project has uncommitted changes that make patch generation impossible, etc.), write a clear summary to `run.log`, set `status=crash` on any in-flight variants, and stop. Do not flail.
+
+## First run
+
+On your very first run in a fresh setup, your first variant should be a **no-op baseline snapshot**. Write a row to `results.tsv` with `variant_slug=v0000-baseline`, `diff_lines=0`, `status=proposed`, empty scores, and `description=baseline snapshot`. This anchors the ranking system and lets you compute deltas against a known zero. Then begin the real loop at step 1.
