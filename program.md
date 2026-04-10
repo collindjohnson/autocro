@@ -13,6 +13,30 @@ Before you start the loop:
 3. **Read the adapter playbooks already loaded by setup-check.** For each enabled adapter in `config.adapters`, you have the file at `adapters/<kind>/<id>.md` and a validated `## health` result. `null` ids mean "operate without that data source" (already noted in run.log by setup-check). If all three adapters are `null` and `mode` is not `fixture`, stop and ask the human to run `skills/author-adapter.md` — you cannot do useful work without any data source.
 4. **Read the last 50 rows of `results.tsv`.** This is your memory of what was tried. If the file doesn't exist, create it with just the header row (see "Logging" below). The first run's baseline is recorded after your first variant.
 5. **Agree on a run tag.** Propose a tag based on today's date (e.g. `apr10`). Create a new branch named `autoresearch-web/<tag>` in the PARENT project if `config.git.use_branch` is true (default false, use worktrees instead). Confirm with the human before starting the loop.
+
+5b. **Check `config.workflow.schedule` (if present).** If `schedule.enabled` is true, compute the cron expression from `interval_value` and `interval_unit`:
+
+   - `days`:   `0 2 */<N> * *`  (runs at 2 AM every N days)
+   - `weeks`:  `0 2 */<N*7> * *`  (convert weeks to days)
+   - `months`: `0 2 1 */<N> *`  (1st of every Nth month at 2 AM)
+
+   Print this block and log a `schedule_setup` event to `run.log`:
+
+   ```
+   SCHEDULE SETUP — To auto-run every <N> <unit>(s), add this line to your crontab:
+
+     <cron expression>  claude autoresearch-web/program.md
+
+   Run: crontab -e  (or add to a launchd plist on macOS)
+   Paste the line above, save, and exit.
+
+   The agent never writes system files. You paste this once; it runs on schedule.
+   ```
+
+   The human must confirm they have applied the cron entry before you proceed.
+
+5c. **Resolve `config.workflow.test_window` to hours.** Compute `test_window_hours` from `value` × (`days`: 24, `weeks`: 168, `months`: 730). If `test_window_hours < config.outer_loop.min_experiment_hours`, log a `setup_check_failed`-style warning to `run.log` and clamp upward to `min_experiment_hours` — this preserves the hard floor set by the outer-loop config. Cache `test_window_hours` for `skills/read-experiment.md` to read. Also verify `workflow.test_window.on_winner` is one of `queue_followup`, `stop`, `notify_only` (defaulting to `queue_followup` if unset).
+
 6. **Confirm the goal.** Read `config.goal.name`, `config.goal.event`, `config.goal.target_paths` and state them back to the human before you begin.
 
 Once the human confirms, begin the inner loop. Do NOT ask permission to continue — just start.
@@ -26,15 +50,16 @@ Once the human confirms, begin the inner loop. Do NOT ask permission to continue
 - Write progress notes and a timestamped summary to `autoresearch-web/run.log`.
 - Create throwaway git worktrees under `~/.cache/autoresearch-web/worktrees/` to preview patches (out-of-tree, never inside the parent repo).
 - Call the pre-validation sub-skill (`skills/pre-validate.md`) and the harness utilities referenced from it.
-- Call the abtest adapter's `push_variant` **only** when a variant has passed pre-validation with `composite >= config.prevalidation.thresholds.push`, the simplicity check passed, and the adapter is not `null`.
+- Call `skills/queue-review.md` (the single chokepoint for the abtest adapter's `push_variant`) when a variant has passed pre-validation with `composite >= config.prevalidation.thresholds.push`, the simplicity check passed, and the adapter is not `null`. Never call `push_variant` directly from anywhere else.
+- If `config.workflow.auto_apply_to_repo` is `true` AND a variant's `composite >= config.workflow.auto_apply_threshold`, apply the patch directly to the parent project's working tree and commit it. See inner loop step 7 for the exact procedure. This is independent of `review_mode` — the two are orthogonal.
 
 ## What you CANNOT do
 
-- **Do NOT edit parent project files directly.** You produce `patch.diff` files under `variants/<slug>/`. The human applies them. Exception: if `config.guardrails.auto_apply` is explicitly `true`, you may apply a patch against a scratch worktree — still never the user's working tree.
+- **Do NOT edit parent project files directly unless `config.workflow.auto_apply_to_repo` is `true` AND the variant's `composite >= config.workflow.auto_apply_threshold` (default 0.70).** By default, you only produce `patch.diff` files under `variants/<slug>/`. The human applies them. Exception for scratch worktrees: if `config.guardrails.auto_apply` is explicitly `true`, you may apply a patch against a scratch worktree for Lighthouse scoring — still never the user's working tree unless `auto_apply_to_repo` is true.
 - **Do NOT touch any path matched by `config.guardrails.deny_globs`.** This includes `.env*`, `**/secrets*`, `**/credentials*`, `node_modules/`, `.git/`, `**/payment/**`, `**/auth/**`, `**/checkout/server/**`, `**/*.key`. If a hypothesis requires a denied file, discard the hypothesis and pick another.
 - **Do NOT install packages** in the parent project. If a hypothesis needs a new dependency, discard it.
 - **Do NOT edit this file, `skills/*`, `adapters/*`, or `harness/*`.** Those are the human-iterated skill.
-- **Do NOT auto-allocate production traffic.** Every pushed experiment starts at 0% allocation. The human ramps manually.
+- **Do NOT auto-allocate production traffic unless `config.workflow.review_mode == "auto"`.** In `manual` mode (default) and `off`, every pushed experiment starts at 0% allocation and the human ramps manually. In `auto` mode, you push at `config.workflow.auto_allocation_pct` (default 50) — the experiment goes live immediately, as the user explicitly opted into that flow.
 - **Do NOT ask the human whether to continue mid-run.** See "NEVER STOP".
 
 ## Simplicity criterion
@@ -91,7 +116,7 @@ Column contract:
 1. `variant_slug` — matches the folder name under `variants/`.
 2. `hypothesis_source` — comma-separated tags citing the data that produced the hypothesis, keyed by the adapter ID from config. E.g. `myanalytics:top_pages,myheatmap:attention` or `recombine:v0031+v0019` or `outer_loop:poll`.
 3. `diff_lines` — added + deleted lines in `patch.diff`. `0` for no-op rows like outer-loop polls.
-4. `status` — one of `proposed`, `pre_validated`, `pushed`, `measuring`, `winner`, `loser`, `discarded`, `crash`.
+4. `status` — one of `proposed`, `pre_validated`, `awaiting_review`, `rejected`, `pushed`, `auto_applied`, `measuring`, `winner`, `loser`, `discarded`, `crash`.
 5–8. `lh_score`, `judge_score`, `persona_score`, `heuristic_score` — each in `[-1, +1]` or empty if that signal is disabled.
 9. `composite` — renormalized composite, in `[-1, +1]`.
 10. `experiment_id` — set once pushed to an abtest adapter. Empty otherwise.
@@ -134,10 +159,12 @@ Allowed `event` values (extend this enum only by also updating this block):
 - `adapter_health_pass` / `adapter_health_fail` — the `## health` section of an adapter
 - `adapter_validate_pass` / `adapter_validate_fail` — skills/validate-adapter.md result per adapter
 - `iter_start` / `iter_end` — inner loop iteration boundaries
-- `variant_proposed` / `variant_pre_validated` / `variant_pushed` / `variant_discarded` — variant lifecycle events
+- `variant_proposed` / `variant_pre_validated` / `variant_pushed` / `variant_pushed_live` / `variant_discarded` / `variant_auto_applied` — variant lifecycle events
+- `variant_queued_review` / `variant_approved` / `variant_rejected` — review-queue lifecycle events
+- `schedule_setup` — setup printed cron instructions for the human (emitted during setup step 5b)
 - `row_rejected` — check_results_row.py rejected a row before append
 - `deny_glob_violation` — check_path.py blocked a candidate target path
-- `outer_loop_poll` / `outer_loop_winner` / `outer_loop_loser` — outer loop events
+- `outer_loop_poll` / `outer_loop_winner` / `outer_loop_loser` / `followup_queued` — outer loop events
 - `budget_hit` — max_variants_per_run or max_wall_minutes tripped
 - `stop` — human interrupted or budget hit; graceful exit
 - `crash` — uncaught failure; include the traceback in `notes`
@@ -148,6 +175,18 @@ Rule: every write to `run.log` must match this shape exactly. The analysis noteb
 
 ```
 LOOP FOREVER:
+  0. Drain the review queue. Invoke skills/queue-review.md in ## drain mode.
+     If config.workflow.review_mode is "off", skip. Otherwise:
+       - If the Claude Code session is interactive, queue-review.md prompts
+         the human for each awaiting_review item (approve / reject / defer).
+       - If the session is headless, queue-review.md only acts on items
+         whose status was manually flipped to `approved` or `rejected` in
+         PENDING.md. Unflipped items stay queued.
+       - On approve: call the abtest adapter's push_variant with
+         allocation_pct = 0 (manual mode) and append a status=pushed row.
+       - On reject: append a status=rejected row.
+     Then continue to step 1.
+
   1. Read tail of results.tsv and (if it exists) variants/RANKED.md. Decide the
      research direction for this iteration. Options, rotate through them:
        (a) exploit: tweak a pre_validated near-miss that had promising signals.
@@ -182,7 +221,11 @@ LOOP FOREVER:
      diff_lines <= config.guardrails.max_diff_lines and sanity-check the
      diff content (no debug statements, no commented-out blocks, etc).
 
-  7. Decide the status:
+  7. Decide the status. Compute the base classification first, then branch
+     on config.workflow.review_mode, then check auto-apply-to-repo
+     independently.
+
+     (a) Base classification:
        composite < config.prevalidation.thresholds.discard
            OR diff_lines > config.guardrails.max_diff_lines
            OR simplicity review failed
@@ -192,17 +235,65 @@ LOOP FOREVER:
          -> status=pre_validated. Keep the variant folder for later
             recombination. Write row. Continue.
 
-       composite >= config.prevalidation.thresholds.push
-         AND simplicity review passed
-         AND config.adapters.abtest.id is not null
-         -> call the abtest adapter's push_variant. On success, write
-            variants/<slug>/experiment.json and set status=pushed with the
-            returned experiment_id. On failure, warn and set
-            status=pre_validated instead.
+     (b) composite >= config.prevalidation.thresholds.push AND simplicity
+         review passed AND config.adapters.abtest.id is not null:
 
-       composite >= config.prevalidation.thresholds.push
+         CASE config.workflow.review_mode:
+
+         "off":
+           -> status=pre_validated (plan-only). Write row. Continue.
+
+         "manual":
+           -> Invoke skills/queue-review.md in ## append mode. The skill
+              writes an entry to variants/PENDING.md with
+              status: awaiting_review, appends an awaiting_review row to
+              results.tsv, and logs event=variant_queued_review. Do NOT
+              call push_variant — the drain step (step 0 of the next
+              iteration, or an interactive drain prompt) is the only path
+              to actually push the variant.
+
+         "auto":
+           IF composite >= config.workflow.auto_push_threshold:
+             -> Call abtest.push_variant with
+                  allocation_pct = config.workflow.auto_allocation_pct
+                (default 50). The test goes LIVE immediately — no 0%
+                staging, no human ramp. On success, write
+                variants/<slug>/experiment.json, set status=pushed with
+                the returned experiment_id, and log
+                event=variant_pushed_live. On failure, warn and fall
+                through to the "below auto_push_threshold" branch below.
+           ELSE (composite < auto_push_threshold):
+             -> Invoke skills/queue-review.md in ## append mode (same as
+                manual). status=awaiting_review.
+
+     (c) composite >= config.prevalidation.thresholds.push
          AND config.adapters.abtest.id IS null
          -> status=pre_validated (abtest is plan-only). Write row. Continue.
+
+     (d) Auto-apply to the parent working tree — orthogonal to the above:
+         IF config.workflow.auto_apply_to_repo == true
+            AND composite >= config.workflow.auto_apply_threshold (default 0.70)
+            AND simplicity review passed
+            AND current status is NOT discarded
+         -> Apply the patch to the parent project's working tree:
+              cd <config.project.root>
+              git apply --check autoresearch-web/variants/<slug>/patch.diff
+              git apply autoresearch-web/variants/<slug>/patch.diff
+              git add -A
+              git commit -m "chore(cro): auto-apply <slug>
+
+Composite: <composite>
+Hypothesis: <one-line summary from hypothesis.md>
+Run tag: <tag>"
+            On success: append a status=auto_applied row. Log
+              event=variant_auto_applied.
+            On git apply failure: do NOT commit. Keep the existing status
+              (pre_validated, pushed, or awaiting_review). Log notes:
+              "auto-apply failed: <error>".
+            Note: auto-apply and A/B push are fully independent — a variant
+              can simultaneously be awaiting_review (in manual mode), pushed
+              live (in auto mode), AND auto-applied to the working tree,
+              depending on the thresholds the human set.
 
   8. Every config.outer_loop.check_every iterations (default 8), run the
      outer loop poll (skills/read-experiment.md). Update any measuring/pushed

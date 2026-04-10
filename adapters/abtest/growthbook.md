@@ -3,7 +3,7 @@
 kind: abtest
 id: growthbook
 
-Reference adapter for [GrowthBook](https://www.growthbook.io) — an open-source feature flag and experimentation platform. The REST API is clean and maps 1:1 to the abtest contract: create experiments at 0% allocation, poll results, promote by updating phase coverage, and archive. Works with both cloud and self-hosted GrowthBook.
+Reference adapter for [GrowthBook](https://www.growthbook.io) — an open-source feature flag and experimentation platform. The REST API is clean and maps 1:1 to the abtest contract: create experiments at the caller-requested coverage, poll results, promote by updating phase coverage, and archive. Works with both cloud and self-hosted GrowthBook.
 
 ## requires
 
@@ -97,13 +97,16 @@ Return:
 
 ## write
 
-### push_variant(slug, patch_path, description)
+### push_variant(slug, patch_path, description, allocation_pct)
 
-Create a new experiment with one control + one treatment variation, at 0% coverage (zero real traffic) and 50/50 split within whatever coverage the human ramps later.
+Create a new experiment with one control + one treatment variation, at `allocation_pct / 100` coverage and a 50/50 split within that coverage. The caller passes `allocation_pct=0` in manual/off mode (the experiment is created as a GrowthBook draft; the human ramps later via `promote()`) and `config.workflow.auto_allocation_pct` (default 50) in auto mode (the experiment goes live immediately).
+
+Validate: `allocation_pct` must be an integer in `[0, 100]`. Reject anything else with a clear error.
 
 Call:
 ```bash
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+COVERAGE=$(python3 -c "print(${allocation_pct} / 100.0)")
 
 curl -sS -X POST \
   -H "Authorization: Bearer $GROWTHBOOK_API_KEY" \
@@ -122,7 +125,7 @@ curl -sS -X POST \
   "phases": [
     {
       "name": "Main",
-      "coverage": 0.0,
+      "coverage": ${COVERAGE},
       "variationWeights": [0.5, 0.5],
       "dateStarted": "${NOW}"
     }
@@ -133,15 +136,18 @@ EOF
 
 Transform the response:
 ```
-experiment_id = .id
-adapter       = "growthbook"
-allocation    = 0.0
-started_at    = NOW
+experiment_id  = .id
+adapter        = "growthbook"
+allocation     = allocation_pct / 100.0
+allocation_pct = allocation_pct
+started_at     = NOW
 ```
 
 Return:
 ```jsonc
-{"experiment_id": "exp_abc123", "adapter": "growthbook", "allocation": 0.0, "started_at": "2026-04-10T12:34:56Z"}
+{"experiment_id": "exp_abc123", "adapter": "growthbook",
+ "allocation": 0.5, "allocation_pct": 50,
+ "started_at": "2026-04-10T12:34:56Z"}
 ```
 
 ### promote(experiment_id, allocation)
@@ -186,7 +192,7 @@ Return:
 - **GrowthBook experiments must be attached to a "datasource".** `GROWTHBOOK_DATASOURCE_ID` is a required env var because there is no sensible default. Get the ID from GrowthBook settings > Data Sources > (your source) > the id in the URL.
 - **`trackingKey` must be unique per experiment.** The adapter uses the variant slug (e.g. `v0042-hero-cta`) as the tracking key, which guarantees uniqueness given the slug rules in `skills/generate-variant.md`.
 - **Coverage vs variation weights**: `coverage` is the fraction of all users included in the experiment; `variationWeights` is the split between control and treatment within that coverage. We always set `variationWeights: [0.5, 0.5]` and only move `coverage`. Do NOT try to control traffic by adjusting variation weights.
-- **Promotion is manual only.** The agent never calls `promote` from the inner loop. Humans ramp allocation after real results come in.
+- **Promotion is manual only in `review_mode: "manual"`.** The agent never calls `promote` from the inner loop. Humans ramp allocation after real results come in. In `review_mode: "auto"` the variant is created at `auto_allocation_pct` coverage up front, so no ramp is needed.
 - **Rate limit**: GrowthBook cloud is documented at 60 req/min for the v1 API. Self-hosted has no enforced limit.
 - **Last verified: 2026-04**
 

@@ -90,9 +90,95 @@ For each non-null adapter, invoke `skills/validate-adapter.md` with the adapter 
 
 Failure → stop setup with the full error block from validate.py's stderr. See `skills/validate-adapter.md` for the exact error format and what it tells the human about fixing the adapter's `## read` section.
 
-### 6. Confirm success
+### 6. Validate `workflow` config (if present)
 
-If all five steps pass, write one line to `run.log`:
+If `config.workflow` is set, run these checks. The first three are hard failures; the rest are warnings.
+
+**a) Auto-push threshold floor (hard).** If `workflow.auto_push_threshold < prevalidation.thresholds.push`, stop with:
+
+```
+SETUP CHECK FAILED: workflow.auto_push_threshold is below the push gate
+config.workflow.auto_push_threshold = <value>
+config.prevalidation.thresholds.push = <push>
+fix: set auto_push_threshold >= <push>. Auto mode is supposed to be
+     MORE selective than the base push gate, not less.
+setup stopped.
+```
+
+**b) Auto mode requires an abtest adapter (hard).** If `workflow.review_mode == "auto"` and `adapters.abtest.id` is `null`, stop with:
+
+```
+SETUP CHECK FAILED: auto mode with no abtest adapter
+config.workflow.review_mode = "auto"
+config.adapters.abtest.id = null
+fix: either (a) set review_mode to "manual" or "off", or
+            (b) author an abtest adapter via skills/author-adapter.md and set
+                adapters.abtest.id to its filename.
+setup stopped.
+```
+
+**c) Auto allocation must be live (hard).** If `workflow.review_mode == "auto"` and `workflow.auto_allocation_pct < 1`, stop with:
+
+```
+SETUP CHECK FAILED: auto mode with 0% allocation
+config.workflow.review_mode = "auto"
+config.workflow.auto_allocation_pct = <value>
+fix: auto mode pushes tests live. Set auto_allocation_pct to the
+     traffic % you want the test to run at (default 50 = even split
+     with control). If you want the 0% staging flow where the human
+     ramps traffic manually, use review_mode: "manual" instead.
+setup stopped.
+```
+
+**d) Test-window floor (warning + clamp).** Compute `test_window_hours = test_window.value * (24 | 168 | 730)`. If `test_window_hours < outer_loop.min_experiment_hours`, warn and clamp upward:
+
+```
+WARNING: workflow.test_window resolves to <Nh>, which is below the
+outer_loop.min_experiment_hours floor (<Mh>). Clamping test_window
+to <Mh>. Either raise workflow.test_window or lower
+outer_loop.min_experiment_hours to silence this warning.
+```
+
+**e) Abtest adapter must accept `allocation_pct` (hard in auto mode, warning in manual).** Parse the abtest adapter file and confirm its `## write :: push_variant` section accepts an `allocation_pct` argument per `adapters/README.md`. If the adapter hardcodes the allocation:
+- `review_mode == "auto"` → stop with "adapter does not accept allocation_pct; auto mode cannot honor auto_allocation_pct". Set the fix hint to "upgrade the adapter to take allocation_pct, or switch to manual mode".
+- Otherwise → warn but continue; in manual mode all pushes are 0% and the hardcoded adapter will still work.
+
+**f) Auto-apply warning (advisory).** If `workflow.auto_apply_to_repo == true`, print:
+
+```
+WARNING: workflow.auto_apply_to_repo is true.
+The agent will commit patches directly to <config.project.root> without
+human review of each patch. Ensure:
+  - config.guardrails.deny_globs covers all sensitive paths.
+  - config.workflow.auto_apply_threshold (<value>) is high enough.
+  - config.git.use_branch is set to your preferred branch strategy.
+Proceed only if you have reviewed these settings.
+```
+
+**g) Phase 2/3 prevalidation helpers must exist (hard).** If `prevalidation.lighthouse.enabled == true`, confirm `harness/lighthouse.sh` and `harness/apply-patch.sh` exist. If `prevalidation.persona.enabled == true`, confirm `harness/persona-sim.md` and the configured `prevalidation.persona.personas_file` exist. Missing any of these stops setup with:
+
+```
+SETUP CHECK FAILED: Phase 2/3 prevalidation helper not shipped
+enabled flag: prevalidation.<lighthouse|persona>.enabled = true
+missing file: <path>
+fix: these helpers are opt-in and not yet shipped with the framework.
+     Either (a) set the matching prevalidation.<phase>.enabled flag to
+     false, or (b) author the helper yourself. The MVP runs zero-dep
+     with llm_judge + heuristic signals only.
+setup stopped.
+```
+
+**h) Schedule echo.** If `schedule.enabled == true`, echo the schedule back to the human as confirmation:
+
+```
+schedule: enabled — will prompt for cron setup (every <interval_value> <interval_unit>).
+```
+
+Schema already enforces the valid value ranges; the echo is purely for human visibility.
+
+### 7. Confirm success
+
+If all steps pass, write one line to `run.log`:
 
 ```
 {"ts": "<ISO-8601>", "event": "setup_check_passed", "adapter": null, "capability": null, "files_read": <n>, "files_written": 1, "notes": "config.yaml and all enabled adapters validated"}

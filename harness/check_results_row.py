@@ -12,7 +12,8 @@ Column contract (see program.md lines 83-100):
     1  variant_slug        non-empty string
     2  hypothesis_source   non-empty string
     3  diff_lines          integer >= 0
-    4  status              enum: proposed | pre_validated | pushed | measuring
+    4  status              enum: proposed | pre_validated | awaiting_review
+                                 | rejected | pushed | auto_applied | measuring
                                  | winner | loser | discarded | crash
     5  lh_score            float in [-1, 1] or empty
     6  judge_score         float in [-1, 1] or empty
@@ -34,7 +35,8 @@ Exit codes: 0 pass, 2 invalid row (user error), 3 input load failure.
 import sys
 
 
-STATUSES = {"proposed", "pre_validated", "pushed", "measuring",
+STATUSES = {"proposed", "pre_validated", "awaiting_review", "rejected",
+            "pushed", "auto_applied", "measuring",
             "winner", "loser", "discarded", "crash"}
 
 

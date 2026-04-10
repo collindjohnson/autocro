@@ -17,7 +17,7 @@ A new directory `autoresearch-web/variants/vNNNN-<kebab-slug>/` containing:
 - `sources/` — optional, raw adapter responses that informed the hypothesis (if they exist as files, copy them here; if they were returned inline, dump them as JSON).
 - `notes.md` — initial note with the iteration number, research direction, and any sub-variants you considered and rejected.
 
-Do NOT write `pre-validation.json` or `experiment.json` from this skill — those come from `pre-validate.md` and `push-experiment.md`.
+Do NOT write `pre-validation.json` or `experiment.json` from this skill — those come from `pre-validate.md` and `queue-review.md` (or from the inner-loop auto-mode cascade in `program.md` step 7).
 
 ## Slug rules
 

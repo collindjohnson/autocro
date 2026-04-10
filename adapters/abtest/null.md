@@ -45,15 +45,17 @@ Return: `[]`
 
 ## write
 
-### push_variant(slug, patch_path, description)
+### push_variant(slug, patch_path, description, allocation_pct)
 
-Do not make any network calls. Write a local file to record the plan-only "push":
+Accept the `allocation_pct` argument for contract compatibility (validate it is an integer in `[0, 100]`) but ignore it — the null adapter never reaches a real tool, so any requested allocation is stored for audit and then forgotten. Do not make any network calls. Write a local file to record the plan-only "push":
 
 ```
+assert isinstance(allocation_pct, int) and 0 <= allocation_pct <= 100
 write_json("autoresearch-web/variants/<slug>/experiment.json", {
     "experiment_id": "plan_only:<slug>",
     "adapter": "null",
-    "allocation": 0.0,
+    "allocation": allocation_pct / 100.0,
+    "allocation_pct": allocation_pct,
     "started_at": "<now ISO-8601>",
     "status": "plan_only",
     "description": description
@@ -61,9 +63,12 @@ write_json("autoresearch-web/variants/<slug>/experiment.json", {
 
 return {"experiment_id": "plan_only:<slug>",
         "adapter": "null",
-        "allocation": 0.0,
+        "allocation": allocation_pct / 100.0,
+        "allocation_pct": allocation_pct,
         "started_at": "<now ISO-8601>"}
 ```
+
+Note: `review_mode: "auto"` with the null adapter is rejected by setup-check (auto mode requires a real abtest adapter). So `allocation_pct` will always be `0` in practice when the null adapter is in use, but the argument is required per the contract.
 
 The inner loop will still record `status=pushed` in `results.tsv` and the slug is plan-ready — the human can apply the patch manually or switch `config.adapters.abtest.id` to a real adapter later and re-push.
 

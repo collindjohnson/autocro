@@ -11,8 +11,8 @@ This is a fork of [Karpathy's autoresearch](https://github.com/karpathy/autorese
 - **Drop-in, tech-stack-agnostic.** Works on Next.js, Astro, plain HTML, WordPress, Rails, Django, SvelteKit — anything. The tool only reads files via a configurable glob allowlist and writes variant patches to its own folder.
 - **Reference adapters + authoring skill.** Ships ready-to-use reference adapters for the common tools (GA4, Plausible, PostHog, Microsoft Clarity, GrowthBook). For anything else, `skills/author-adapter.md` walks you through writing a markdown adapter playbook for your tool, interactively.
 - **Fail-fast setup.** A mechanical validation layer (`skills/setup-check.md` + `skills/validate-adapter.md` + `harness/validate.py`) checks your `config.yaml`, verifies required env vars are set, and validates every adapter capability against a JSON-schema contract before the inner loop runs. Misconfigurations and adapter shape bugs surface at setup time with a line-addressed, actionable error — never hours later as confusing output.
-- **Safe by default.** Patches live in `variants/`, never applied to your working tree. Denied globs protect `.env`, `auth/`, `payment/`, `node_modules/`, `.git/`. A/B tests are created at 0% traffic allocation; you ramp them manually.
-- **Two loops.** A fast **inner loop** (minutes per iteration) generates and pre-validates variants using LLM judges + heuristics. A slow **outer loop** (days) reads real experiment results from your A/B tool once they're statistically significant and promotes winners. The inner loop runs overnight; the outer loop runs whenever you prompt it.
+- **Safe by default.** Patches live in `variants/`, never applied to your working tree. Denied globs protect `.env`, `auth/`, `payment/`, `node_modules/`, `.git/`. The default `review_mode: "manual"` queues every variant in `variants/PENDING.md` and waits for explicit human approval (either by editing the file or via the interactive drain prompt) before anything is pushed to your A/B tool. Opt into `review_mode: "auto"` if you want variants above `auto_push_threshold` to go live automatically at `auto_allocation_pct` traffic (default 50 — an even split with control).
+- **Two loops.** A fast **inner loop** (minutes per iteration) generates and pre-validates variants using LLM judges + heuristics. A slow **outer loop** (days) reads real experiment results from your A/B tool once they're statistically significant and promotes winners. The inner loop runs overnight; the outer loop runs whenever you prompt it. Each test's minimum bake time is controlled by `workflow.test_window` (e.g. `{value: 2, unit: "weeks"}`) so you can match your traffic volume, and `on_winner: queue_followup` automatically feeds winning hypotheses back into the inner loop as seeds for follow-up tests.
 - **No third-party dependencies.** Everything is markdown skills + adapters the agent executes. The validation helpers under `harness/` are stdlib-only Python. Optional Lighthouse and Playwright helpers are Node-only and opt-in.
 
 ## Prerequisites
@@ -125,6 +125,19 @@ Adapters are **markdown playbooks**, not code. The agent reads them and executes
 
 See `adapters/README.md` for the full contract and `skills/author-adapter.md` for the interactive walk-through.
 
+## Workflow knobs
+
+All three human-control knobs live under `workflow:` in `config.yaml`:
+
+- **`review_mode`** — `"manual"` (default), `"auto"`, or `"off"`.
+  - `manual`: every eligible variant is queued to `variants/PENDING.md` with `status: awaiting_review`. Nothing reaches your A/B tool until you either (a) edit the status line in `PENDING.md` to `approved` / `rejected`, or (b) let the agent prompt you interactively during the next inner-loop iteration. Approved variants push at 0% and you ramp manually.
+  - `auto`: variants with `composite >= auto_push_threshold` push live immediately at `auto_allocation_pct` traffic (default 50 — an even split with control). Lower-scoring variants still queue into `PENDING.md`. Requires a real abtest adapter.
+  - `off`: plan-only. Never touches the A/B tool. Variants still land in `variants/` with scores and a ranked list so you can review them offline.
+- **`test_window`** — how long each pushed experiment must run before the outer loop is allowed to declare a winner. Configured in human units (`{value: 2, unit: "weeks"}`). `on_winner` controls what happens next: `queue_followup` (default — seed a follow-up variant from the winning hypothesis), `stop`, or `notify_only`.
+- **`auto_apply_to_repo`** — independent from `review_mode`. When true, variants with `composite >= auto_apply_threshold` are `git apply`'d and committed to the parent project's working tree. Orthogonal to the A/B push — a variant can be both auto-committed AND queued for review.
+
+Scheduling (`workflow.schedule`) is for restarting the whole session on an interval and is separate from `test_window`, which governs per-experiment baking time.
+
 ## Project structure
 
 ```
@@ -141,8 +154,8 @@ autoresearch-web/
     pre-validate.md            <- run composite scoring
     simplicity-review.md       <- diff-size check
     rank.md                    <- re-rank and write RANKED.md
-    push-experiment.md         <- Phase 2: push to A/B tool (via abtest adapter)
-    read-experiment.md         <- Phase 2: poll real results (outer loop)
+    queue-review.md            <- append to / drain variants/PENDING.md
+    read-experiment.md         <- poll real results (outer loop)
 
   adapters/                    <- tool adapters (markdown playbooks)
     README.md                  <- the contract + normalized shapes
@@ -153,10 +166,14 @@ autoresearch-web/
 
   harness/
     judge-rubric.md            <- LLM judge rubric (anti-fluff)
-    lighthouse.sh              <- Phase 2 opt-in
-    apply-patch.sh             <- Phase 2 opt-in
-    make-diff.sh               <- Phase 2 opt-in
-    persona-sim.md             <- Phase 3 opt-in
+    # Phase 2/3 opt-in helpers are NOT yet shipped. Leave the matching
+    # prevalidation.lighthouse.enabled / prevalidation.persona.enabled
+    # flags false until these exist (or author them yourself):
+    #   lighthouse.sh        (Phase 2)
+    #   apply-patch.sh       (Phase 2)
+    #   make-diff.sh         (Phase 2)
+    #   persona-sim.md       (Phase 3)
+    #   personas.md          (Phase 3)
 
   fixtures/
     demo-target/               <- minimal HTML site for offline smoke test
@@ -165,6 +182,8 @@ autoresearch-web/
     experiment-sample.json
 
   variants/                    <- OUTPUT: generated variants (gitignored)
+  variants/PENDING.md          <- OUTPUT: review queue for manual mode
+  variants/RANKED.md           <- OUTPUT: current top candidates
   results.tsv                  <- OUTPUT: 14-col append-only log (gitignored)
 ```
 
