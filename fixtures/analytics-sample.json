@@ -1,0 +1,45 @@
+{
+  "_comment": "Canned analytics payload used by adapters/analytics/fixture.md. Pre-shaped to match adapters/README.md normalized contract. Deliberately low conversion rates and obvious drop-offs so hypothesize.md has plenty to work with on fixtures/demo-target/.",
+
+  "top_pages": [
+    {"path": "/",         "sessions": 18420, "bounce_rate": 0.72, "conv_rate": 0.006, "avg_time_s": 34},
+    {"path": "/pricing",  "sessions":  8240, "bounce_rate": 0.61, "conv_rate": 0.009, "avg_time_s": 52},
+    {"path": "/signup",   "sessions":  2310, "bounce_rate": 0.38, "conv_rate": 0.041, "avg_time_s": 87},
+    {"path": "/features", "sessions":  3940, "bounce_rate": 0.68, "conv_rate": 0.004, "avg_time_s": 41},
+    {"path": "/docs",     "sessions":  6120, "bounce_rate": 0.44, "conv_rate": 0.002, "avg_time_s": 196}
+  ],
+
+  "landing_pages": [
+    {"path": "/",         "landings": 12420, "bounce_rate": 0.78, "conv_rate": 0.004},
+    {"path": "/pricing",  "landings":  5120, "bounce_rate": 0.64, "conv_rate": 0.007},
+    {"path": "/features", "landings":  2840, "bounce_rate": 0.71, "conv_rate": 0.003}
+  ],
+
+  "funnel": [
+    {"step": "landing",    "entered": 12420, "advanced": 8940},
+    {"step": "pricing",    "entered":  8940, "advanced": 2310},
+    {"step": "signup_form","entered":  2310, "advanced":  420},
+    {"step": "submit",     "entered":   420, "advanced":   96}
+  ],
+
+  "traffic_sources": [
+    {"source": "google.com",        "medium": "organic",  "sessions": 9820, "conv_rate": 0.004},
+    {"source": "direct",            "medium": "direct",   "sessions": 3940, "conv_rate": 0.008},
+    {"source": "twitter.com",       "medium": "social",   "sessions": 2140, "conv_rate": 0.002},
+    {"source": "news.ycombinator.com","medium": "referral","sessions": 1820, "conv_rate": 0.019},
+    {"source": "producthunt.com",   "medium": "referral", "sessions":  840, "conv_rate": 0.021}
+  ],
+
+  "conversions": {
+    "event": "sign_up",
+    "count": 96,
+    "sessions": 18420,
+    "rate": 0.00521
+  },
+
+  "session_quality": [
+    {"path": "/",         "avg_time_s": 34, "scroll_depth_p50": 0.24, "bounce_rate": 0.72, "engagement_score": 0.18},
+    {"path": "/pricing",  "avg_time_s": 52, "scroll_depth_p50": 0.41, "bounce_rate": 0.61, "engagement_score": 0.31},
+    {"path": "/signup",   "avg_time_s": 87, "scroll_depth_p50": 0.78, "bounce_rate": 0.38, "engagement_score": 0.44}
+  ]
+}

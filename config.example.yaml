@@ -1,0 +1,252 @@
+# autoresearch-web configuration
+#
+# Copy this file to config.yaml and edit. config.yaml is gitignored so you can
+# put local settings in it safely. NEVER inline credentials; always use
+# *_env keys that point at an environment variable name.
+#
+# The agent reads this file during setup via program.md.
+
+# ---------------------------------------------------------------------------
+# Parent project
+# ---------------------------------------------------------------------------
+
+project:
+  # Path to the parent project root, relative to this folder. If you dropped
+  # autoresearch-web/ at the root of your website project, ".." is correct.
+  root: ".."
+
+  # Stack hint. Leave null to auto-detect. If detection is wrong, set it
+  # explicitly. Accepted values: nextjs | nuxt | astro | sveltekit |
+  # remix | rails | django | wordpress | plain-html | unknown.
+  stack: null
+
+  # URL where the parent project is served (staging or local dev). Required
+  # if prevalidation.lighthouse.enabled or prevalidation.persona.enabled.
+  # Not required for MVP (llm_judge + heuristic only).
+  baseline_url: "http://localhost:3000"
+
+# ---------------------------------------------------------------------------
+# Goal — what the agent is optimizing for
+# ---------------------------------------------------------------------------
+
+goal:
+  # Human-readable goal, used in reports and hypothesis text.
+  name: "Free trial signup"
+
+  # The conversion event name as it exists in your analytics tool. The
+  # analytics adapter's "conversions" capability uses this.
+  event: "sign_up"
+
+  # Paths (relative to baseline_url) that matter most. The inner loop rotates
+  # across these to prevent mode collapse. Add all pages in your conversion
+  # funnel.
+  target_paths:
+    - "/"
+    - "/pricing"
+    - "/signup"
+
+  # Optional: if set, the inner loop stays inside this single path.
+  # Useful for focused deep-dive sessions.
+  focus: null
+
+# ---------------------------------------------------------------------------
+# Adapters — tool integrations
+# ---------------------------------------------------------------------------
+#
+# Every adapter id refers to a file under adapters/<kind>/<id>.md. Shipped
+# defaults are "null" (no-op) and "fixture" (reads fixtures/*.json). Author
+# your own via skills/author-adapter.md. No tool-specific adapters ship.
+#
+# Credentials are referenced via *_env keys that point at environment
+# variable names. The agent refuses to start if it detects a literal-looking
+# key in this file.
+
+adapters:
+  analytics:
+    id: null                    # pick one: ga4 | plausible | posthog | fixture | null
+  heatmap:
+    id: null                    # pick one: clarity | posthog | fixture | null
+  abtest:
+    id: null                    # pick one: growthbook | posthog | fixture | null  (default null = plan-only; safe)
+
+  # ----------------------------------------------------------------------
+  # Reference adapter examples
+  # ----------------------------------------------------------------------
+  # Uncomment ONE per kind below after choosing the matching id above.
+  # All credentials are env-var only; never inline keys in this file.
+  # The full list of adapters is under adapters/<kind>/*.md.
+
+  # --- Google Analytics 4 (analytics) ---
+  # ga4:
+  #   # required env vars (export these in your shell before running program.md):
+  #   #   GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
+  #   #   GA4_PROPERTY_ID=123456789
+
+  # --- Plausible (analytics) ---
+  # plausible:
+  #   # required env vars:
+  #   #   PLAUSIBLE_API_KEY=...
+  #   #   PLAUSIBLE_SITE_ID=your-domain.com
+  #   # optional:
+  #   #   PLAUSIBLE_BASE_URL=https://plausible.io      # override for self-hosted
+
+  # --- PostHog (covers analytics + heatmap + abtest with one project) ---
+  # posthog:
+  #   # required env vars:
+  #   #   POSTHOG_API_KEY=phc_xxx      # personal API key with Query + Read + Experiment scopes
+  #   #   POSTHOG_PROJECT_ID=12345     # NOTE: numeric project id, not the "phc_" team key
+  #   # optional:
+  #   #   POSTHOG_HOST=https://us.posthog.com          # or eu.posthog.com or self-hosted
+
+  # --- Microsoft Clarity (heatmap) ---
+  # clarity:
+  #   # required env vars:
+  #   #   CLARITY_PROJECT_ID=...
+  #   #   CLARITY_API_TOKEN=...
+  #   # NOTE: Clarity Data Export API is aggregate-only and ~10 req/day on free tier.
+  #   #       Only page_attention is implemented; click_map / rage_clicks are not_implemented.
+  #   #       See adapters/heatmap/clarity.md for the full explanation.
+
+  # --- GrowthBook (abtest) ---
+  # growthbook:
+  #   # required env vars:
+  #   #   GROWTHBOOK_API_KEY=...
+  #   #   GROWTHBOOK_DATASOURCE_ID=...
+  #   # optional:
+  #   #   GROWTHBOOK_API_HOST=https://api.growthbook.io                 # override for self-hosted
+
+# ---------------------------------------------------------------------------
+# Guardrails — what the agent can and cannot touch
+# ---------------------------------------------------------------------------
+
+guardrails:
+  # Globs (relative to project.root) the agent is allowed to READ.
+  read_globs:
+    - "**/*.html"
+    - "**/*.{jsx,tsx,vue,svelte,astro}"
+    - "**/*.{css,scss,sass,less}"
+    - "**/*.{md,mdx}"
+    - "**/*.{json,yaml,yml,toml}"
+    - "public/**"
+    - "src/**"
+    - "pages/**"
+    - "app/**"
+    - "components/**"
+
+  # Globs (relative to project.root) the agent must NEVER touch, even if a
+  # hypothesis suggests doing so. These take precedence over read_globs.
+  deny_globs:
+    - ".env*"
+    - "**/secrets*"
+    - "**/credentials*"
+    - "**/.secrets/**"
+    - "node_modules/**"
+    - ".git/**"
+    - "**/payment/**"
+    - "**/auth/**"
+    - "**/checkout/server/**"
+    - "**/*.key"
+    - "**/*.pem"
+    - "**/private/**"
+
+  # Maximum added + deleted lines in a single variant's patch.diff.
+  # Variants exceeding this are auto-discarded regardless of composite score.
+  max_diff_lines: 200
+
+  # If true, the agent MAY apply a patch to a scratch worktree at
+  # ~/.cache/autoresearch-web/worktrees/<slug>/ for preview (e.g. Lighthouse).
+  # The user's working tree is NEVER touched regardless of this setting.
+  # Default false keeps the inner loop pure-diff and zero-risk.
+  auto_apply: false
+
+# ---------------------------------------------------------------------------
+# Pre-validation — how variants are scored before any real A/B test
+# ---------------------------------------------------------------------------
+
+prevalidation:
+  # Weights for the composite score. Signals that are disabled have their
+  # weight redistributed across the enabled signals.
+  weights:
+    lighthouse: 0.15
+    llm_judge:  0.40
+    persona:    0.30
+    heuristic:  0.15
+
+  thresholds:
+    # Composite below this = status=discarded.
+    discard: -0.10
+    # Composite at or above this = eligible to be pushed to abtest adapter
+    # (subject to simplicity review and the adapter not being null).
+    push: 0.35
+
+  # Cheap, deterministic, zero-dep. Always enabled in Phase 1.
+  heuristic:
+    enabled: true
+
+  # LLM judge panel using harness/judge-rubric.md. Zero-dep (the agent IS the
+  # judge). Phase 1 default.
+  llm_judge:
+    enabled: true
+    # Number of independent rubric passes averaged into the final score.
+    panel_size: 5
+    # Seed used in the rubric prompt to reduce run-to-run variance.
+    seed: 42
+
+  # Phase 2: Lighthouse via harness/lighthouse.sh. Requires Node + internet.
+  # Opt-in; disabled by default so the MVP is zero-dep.
+  lighthouse:
+    enabled: false
+    categories: [performance, accessibility, best-practices, seo]
+
+  # Phase 3: Playwright persona simulation via harness/persona-sim.md.
+  # Requires Node + Playwright + baseline_url reachable. Opt-in.
+  persona:
+    enabled: false
+    personas_file: "harness/personas.md"
+    n_visits: 10
+
+# ---------------------------------------------------------------------------
+# Outer loop — reading real A/B test results
+# ---------------------------------------------------------------------------
+
+outer_loop:
+  # Run the outer-loop poll every N inner-loop iterations.
+  check_every: 8
+  # Minimum hours a real experiment must have been running before the poll
+  # will consider promoting it to winner/loser.
+  min_experiment_hours: 48
+  # Required significance (1 - p) to call a winner or loser. Default 0.9
+  # (p < 0.1). Tighten to 0.95 for more conservative promotion.
+  required_significance: 0.9
+
+# ---------------------------------------------------------------------------
+# Budget — when the inner loop should stop
+# ---------------------------------------------------------------------------
+
+budget:
+  # Maximum variants the agent proposes in a single run. Prevents runaway
+  # overnight sessions.
+  max_variants_per_run: 50
+  # Wall-clock minutes the agent is allowed to run before printing a summary
+  # and stopping gracefully. Default 8 hours.
+  max_wall_minutes: 480
+
+# ---------------------------------------------------------------------------
+# Mode
+# ---------------------------------------------------------------------------
+
+# "live"    = call real adapters via their API/CLI/MCP/etc.
+# "fixture" = bypass all live calls and read from fixtures/*.json instead.
+#             Useful for offline verification and for evaluating the tool
+#             before you have accounts set up.
+mode: live
+
+# ---------------------------------------------------------------------------
+# Git integration (optional)
+# ---------------------------------------------------------------------------
+
+git:
+  # If true, the agent creates a branch autoresearch-web/<tag> in the PARENT
+  # project at the start of a run. If false, it only uses out-of-tree
+  # worktrees under ~/.cache/autoresearch-web/. Default false.
+  use_branch: false

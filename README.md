@@ -1,91 +1,180 @@
-# autoresearch
+# autoresearch-web
 
-![teaser](progress.png)
+Autonomous conversion rate optimization research as a drop-in folder for any website project.
 
-*One day, frontier AI research used to be done by meat computers in between eating, sleeping, having other fun, and synchronizing once in a while using sound wave interconnect in the ritual of "group meeting". That era is long gone. Research is now entirely the domain of autonomous swarms of AI agents running across compute cluster megastructures in the skies. The agents claim that we are now in the 10,205th generation of the code base, in any case no one could tell if that's right or wrong as the "code" is now a self-modifying binary that has grown beyond human comprehension. This repo is the story of how it all began. -@karpathy, March 2026*.
+You drop this folder into the root of your website project, spend ~10 minutes telling the agent what analytics / heatmap / A/B testing tools you use, and then let it run overnight. In the morning you wake up to a ranked list of variant ideas — each one is a small, reviewable code diff against your project, grounded in real data from your own tools, pre-validated by an LLM judge panel + heuristic scoring, and (optionally) already queued as a 0%-allocation experiment in whichever A/B testing tool you pointed it at.
 
-The idea: give an AI agent a small but real LLM training setup and let it experiment autonomously overnight. It modifies the code, trains for 5 minutes, checks if the result improved, keeps or discards, and repeats. You wake up in the morning to a log of experiments and (hopefully) a better model. The training code here is a simplified single-GPU implementation of [nanochat](https://github.com/karpathy/nanochat). The core idea is that you're not touching any of the Python files like you normally would as a researcher. Instead, you are programming the `program.md` Markdown files that provide context to the AI agents and set up your autonomous research org. The default `program.md` in this repo is intentionally kept as a bare bones baseline, though it's obvious how one would iterate on it over time to find the "research org code" that achieves the fastest research progress, how you'd add more agents to the mix, etc. A bit more context on this project is here in this [tweet](https://x.com/karpathy/status/2029701092347630069) and [this tweet](https://x.com/karpathy/status/2031135152349524125).
+This is a fork of [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) retargeted from LLM pretraining to CRO. The architectural spirit is unchanged: `program.md` is a lightweight skill you iterate on, the agent runs a tight `generate → evaluate → keep/discard → log` loop, `results.tsv` is the memory, and it never stops until you stop it.
+
+## What makes it different
+
+- **Drop-in, tech-stack-agnostic.** Works on Next.js, Astro, plain HTML, WordPress, Rails, Django, SvelteKit — anything. The tool only reads files via a configurable glob allowlist and writes variant patches to its own folder.
+- **Reference adapters + authoring skill.** Ships ready-to-use reference adapters for the common tools (GA4, Plausible, PostHog, Microsoft Clarity, GrowthBook). For anything else, `skills/author-adapter.md` walks you through writing a markdown adapter playbook for your tool, interactively.
+- **Fail-fast setup.** A mechanical validation layer (`skills/setup-check.md` + `skills/validate-adapter.md` + `harness/validate.py`) checks your `config.yaml`, verifies required env vars are set, and validates every adapter capability against a JSON-schema contract before the inner loop runs. Misconfigurations and adapter shape bugs surface at setup time with a line-addressed, actionable error — never hours later as confusing output.
+- **Safe by default.** Patches live in `variants/`, never applied to your working tree. Denied globs protect `.env`, `auth/`, `payment/`, `node_modules/`, `.git/`. A/B tests are created at 0% traffic allocation; you ramp them manually.
+- **Two loops.** A fast **inner loop** (minutes per iteration) generates and pre-validates variants using LLM judges + heuristics. A slow **outer loop** (days) reads real experiment results from your A/B tool once they're statistically significant and promotes winners. The inner loop runs overnight; the outer loop runs whenever you prompt it.
+- **No third-party dependencies.** Everything is markdown skills + adapters the agent executes. The validation helpers under `harness/` are stdlib-only Python. Optional Lighthouse and Playwright helpers are Node-only and opt-in.
+
+## Prerequisites
+
+This framework is **not a standalone runtime**. It runs inside an agent harness that can execute markdown skills with real tool calls. Required:
+
+- **Claude Code** (or any compatible harness that can run `curl`, `git`, `python3`, `jq`, file I/O, and optional MCP tools from inside a markdown playbook). This is what executes `program.md`, the skills, and the adapter playbooks.
+- **`python3` ≥ 3.10** — used by the stdlib-only validators under `harness/`. No third-party packages required. Ships with every modern macOS/Linux. Install via `brew install python@3.11` or your distro's package manager if missing.
+- **`git`**, **`curl`**, **`jq`** on `PATH`.
+- A **parent website project** to drop this folder into.
+
+Optional (opt-in, Phase 2/3):
+
+- **Node.js + Playwright** — required only if you enable `prevalidation.persona` in `config.yaml`.
+- **Lighthouse CLI** — required only if you enable `prevalidation.lighthouse`.
+
+You do NOT need to `pip install` anything. The `pyproject.toml` in this repo declares zero dependencies on purpose — the `harness/*.py` files are stdlib-only.
 
 ## How it works
 
-The repo is deliberately kept small and only really has three files that matter:
+```
+                   +---------------------+
+                   |  Your parent repo   |
+                   |  (Next.js / WP /    |
+                   |   anything)         |
+                   +----------+----------+
+                              |
+                 drop in as a subfolder:
+                              |
+                              v
+                   +---------------------+
+                   |  autoresearch-web/  |
+                   |                     |
+                   |  program.md  ◄──── you iterate on this
+                   |  skills/           (author-adapter, hypothesize, ...)
+                   |  adapters/         (TEMPLATE + null + fixture shipped)
+                   |  harness/          (judge rubric, optional Lighthouse)
+                   |  fixtures/         (offline smoke test)
+                   |  variants/  ◄──── agent writes here (gitignored)
+                   |  results.tsv ◄──── 14-col memory (gitignored)
+                   +---------------------+
+```
 
-- **`prepare.py`** — fixed constants, one-time data prep (downloads training data, trains a BPE tokenizer), and runtime utilities (dataloader, evaluation). Not modified.
-- **`train.py`** — the single file the agent edits. Contains the full GPT model, optimizer (Muon + AdamW), and training loop. Everything is fair game: architecture, hyperparameters, optimizer, batch size, etc. **This file is edited and iterated on by the agent**.
-- **`program.md`** — baseline instructions for one agent. Point your agent here and let it go. **This file is edited and iterated on by the human**.
+The agent's inner loop, at a glance:
 
-By design, training runs for a **fixed 5-minute time budget** (wall clock, excluding startup/compilation), regardless of the details of your compute. The metric is **val_bpb** (validation bits per byte) — lower is better, and vocab-size-independent so architectural changes are fairly compared.
-
-If you are new to neural networks, this ["Dummy's Guide"](https://x.com/hooeem/status/2030720614752039185) looks pretty good for a lot more context.
+1. Read analytics + heatmap data via your adapters.
+2. Form 1–3 hypotheses. Pick the simplest.
+3. Generate a patch diff against your parent project.
+4. Pre-validate: LLM judge panel + heuristic score → composite.
+5. Keep, discard, or push to A/B test adapter based on composite and diff size.
+6. Log to `results.tsv`. Continue forever.
 
 ## Quick start
 
-**Requirements:** A single NVIDIA GPU (tested on H100), Python 3.10+, [uv](https://docs.astral.sh/uv/).
+### Option A — try it offline first (no accounts needed)
 
 ```bash
-
-# 1. Install uv project manager (if you don't already have it)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2. Install dependencies
-uv sync
-
-# 3. Download data and train tokenizer (one-time, ~2 min)
-uv run prepare.py
-
-# 4. Manually run a single training experiment (~5 min)
-uv run train.py
+# From the root of your website project (or clone this repo to a fresh dir):
+cp autoresearch-web/config.example.yaml autoresearch-web/config.yaml
+# edit config.yaml:
+#   project.root: "."
+#   project.baseline_url: "http://localhost:3000"   # whatever you serve
+#   mode: fixture
+#   adapters.analytics.id: fixture
+#   adapters.heatmap.id:   fixture
+#   adapters.abtest.id:    fixture
 ```
 
-If the above commands all work ok, your setup is working and you can go into autonomous research mode.
+Then open Claude Code in your project root and prompt:
 
-## Running the agent
+> Read `autoresearch-web/program.md` and run **one** inner-loop iteration using fixture adapters.
 
-Simply spin up your Claude/Codex or whatever you want in this repo (and disable all permissions), then you can prompt something like:
+Inspect `autoresearch-web/results.tsv`, `autoresearch-web/variants/v0001-*/`, and the `patch.diff` inside. The patch should apply cleanly to `fixtures/demo-target/` via `git apply --check`.
 
+### Option B — wire up your real tools
+
+```bash
+cp autoresearch-web/config.example.yaml autoresearch-web/config.yaml
+# edit config.yaml:
+#   project.root: "."
+#   goal.event: "<your conversion event>"
+#   adapters.analytics.id: null   # we'll set this in a moment
 ```
-Hi have a look at program.md and let's kick off a new experiment! let's do the setup first.
-```
 
-The `program.md` file is essentially a super lightweight "skill".
+Then in Claude Code, prompt:
+
+> Read `autoresearch-web/program.md`. I don't have any adapters yet. Run `autoresearch-web/skills/author-adapter.md` to help me write one for my analytics tool, which is `<your tool>`. Here are the API docs: `<url or paste>`.
+
+The agent will copy `adapters/TEMPLATE.md` to `adapters/analytics/<your-tool-id>.md`, fill it in based on your answers, run the `## health` check, and update your `config.yaml`. Repeat for heatmap and abtest adapters as needed. Start with `adapters.abtest.id: null` (plan-only) for safety — the inner loop works perfectly without pushing real experiments.
+
+Once adapters are authored and healthy, prompt:
+
+> Read `autoresearch-web/program.md` and begin the inner loop. Run until `budget.max_variants_per_run` or `budget.max_wall_minutes` is hit.
+
+Come back in the morning to `results.tsv` and `variants/RANKED.md`.
+
+## Authoring an adapter
+
+Adapters are **markdown playbooks**, not code. The agent reads them and executes the instructions inline via its normal tool-calling (curl, git, bash, file read/write, optional MCPs — whatever the adapter author specifies in `requires`). A full adapter is typically 50–150 lines.
+
+`adapters/TEMPLATE.md` has the full contract. The minimum you fill in per adapter:
+
+- **`requires`** — env vars, CLI tools, or MCP names your adapter needs.
+- **`## health`** — a read-only checklist the agent runs at setup to confirm the adapter works.
+- **`## capabilities`** — which methods you implement from the contract (`top_pages`, `funnel`, `page_attention`, `push_variant`, etc.).
+- **`## read`** — for each capability, show the exact API call/curl and return the **normalized shape** defined in `adapters/README.md` so the rest of the framework is adapter-blind.
+- **`## write`** — (abtest adapters only) how to push a variant as a 0%-allocation experiment.
+- **`## idioms`** — short rules for interpreting data from this tool.
+- **`## fallbacks`** — how to behave when the API is down; must include `mode: fixture` behavior reading from `fixtures/*.json`.
+
+See `adapters/README.md` for the full contract and `skills/author-adapter.md` for the interactive walk-through.
 
 ## Project structure
 
 ```
-prepare.py      — constants, data prep + runtime utilities (do not modify)
-train.py        — model, optimizer, training loop (agent modifies this)
-program.md      — agent instructions
-pyproject.toml  — dependencies
+autoresearch-web/
+  README.md                    <- you are here
+  program.md                   <- the master skill (the human iterates on this)
+  config.example.yaml          <- per-project config template
+  config.yaml                  <- your config (gitignored)
+
+  skills/                      <- sub-skills invoked from program.md
+    author-adapter.md          <- interactive adapter authoring
+    hypothesize.md             <- data → hypotheses
+    generate-variant.md        <- hypothesis → patch.diff
+    pre-validate.md            <- run composite scoring
+    simplicity-review.md       <- diff-size check
+    rank.md                    <- re-rank and write RANKED.md
+    push-experiment.md         <- Phase 2: push to A/B tool (via abtest adapter)
+    read-experiment.md         <- Phase 2: poll real results (outer loop)
+
+  adapters/                    <- tool adapters (markdown playbooks)
+    README.md                  <- the contract + normalized shapes
+    TEMPLATE.md                <- blank contract to copy
+    analytics/{null,fixture}.md
+    heatmap/{null,fixture}.md
+    abtest/{null,fixture}.md
+
+  harness/
+    judge-rubric.md            <- LLM judge rubric (anti-fluff)
+    lighthouse.sh              <- Phase 2 opt-in
+    apply-patch.sh             <- Phase 2 opt-in
+    make-diff.sh               <- Phase 2 opt-in
+    persona-sim.md             <- Phase 3 opt-in
+
+  fixtures/
+    demo-target/               <- minimal HTML site for offline smoke test
+    analytics-sample.json      <- canned data in the normalized shape
+    heatmap-sample.json
+    experiment-sample.json
+
+  variants/                    <- OUTPUT: generated variants (gitignored)
+  results.tsv                  <- OUTPUT: 14-col append-only log (gitignored)
 ```
 
 ## Design choices
 
-- **Single file to modify.** The agent only touches `train.py`. This keeps the scope manageable and diffs reviewable.
-- **Fixed time budget.** Training always runs for exactly 5 minutes, regardless of your specific platform. This means you can expect approx 12 experiments/hour and approx 100 experiments while you sleep. There are two upsides of this design decision. First, this makes experiments directly comparable regardless of what the agent changes (model size, batch size, architecture, etc). Second, this means that autoresearch will find the most optimal model for your platform in that time budget. The downside is that your runs (and results) become not comparable to other people running on other compute platforms.
-- **Self-contained.** No external dependencies beyond PyTorch and a few small packages. No distributed training, no complex configs. One GPU, one file, one metric.
-
-## Platform support
-
-This code currently requires that you have a single NVIDIA GPU. In principle it is quite possible to support CPU, MPS and other platforms but this would also bloat the code. I'm not 100% sure that I want to take this on personally right now. People can reference (or have their agents reference) the full/parent nanochat repository that has wider platform support and shows the various solutions (e.g. a Flash Attention 3 kernels fallback implementation, generic device support, autodetection, etc.), feel free to create forks or discussions for other platforms and I'm happy to link to them here in the README in some new notable forks section or etc.
-
-Seeing as there seems to be a lot of interest in tinkering with autoresearch on much smaller compute platforms than an H100, a few extra words. If you're going to try running autoresearch on smaller computers (Macbooks etc.), I'd recommend one of the forks below. On top of this, here are some recommendations for how to tune the defaults for much smaller models for aspiring forks:
-
-1. To get half-decent results I'd use a dataset with a lot less entropy, e.g. this [TinyStories dataset](https://huggingface.co/datasets/karpathy/tinystories-gpt4-clean). These are GPT-4 generated short stories. Because the data is a lot narrower in scope, you will see reasonable results with a lot smaller models (if you try to sample from them after training).
-2. You might experiment with decreasing `vocab_size`, e.g. from 8192 down to 4096, 2048, 1024, or even - simply byte-level tokenizer with 256 possibly bytes after utf-8 encoding.
-3. In `prepare.py`, you'll want to lower `MAX_SEQ_LEN` a lot, depending on the computer even down to 256 etc. As you lower `MAX_SEQ_LEN`, you may want to experiment with increasing `DEVICE_BATCH_SIZE` in `train.py` slightly to compensate. The number of tokens per fwd/bwd pass is the product of these two.
-4. Also in `prepare.py`, you'll want to decrease `EVAL_TOKENS` so that your validation loss is evaluated on a lot less data.
-5. In `train.py`, the primary single knob that controls model complexity is the `DEPTH` (default 8, here). A lot of variables are just functions of this, so e.g. lower it down to e.g. 4.
-6. You'll want to most likely use `WINDOW_PATTERN` of just "L", because "SSSL" uses alternating banded attention pattern that may be very inefficient for you. Try it.
-7. You'll want to lower `TOTAL_BATCH_SIZE` a lot, but keep it powers of 2, e.g. down to `2**14` (~16K) or so even, hard to tell.
-
-I think these would be the reasonable hyperparameters to play with. Ask your favorite coding agent for help and copy paste them this guide, as well as the full source code.
-
-## Notable forks
-
-- [miolini/autoresearch-macos](https://github.com/miolini/autoresearch-macos) (MacOS)
-- [trevin-creator/autoresearch-mlx](https://github.com/trevin-creator/autoresearch-mlx) (MacOS)
-- [jsegov/autoresearch-win-rtx](https://github.com/jsegov/autoresearch-win-rtx) (Windows)
-- [andyluo7/autoresearch](https://github.com/andyluo7/autoresearch) (AMD)
+- **One skill to iterate on.** You edit `program.md`, the skills, the adapter template, and the judge rubric. You do not edit the agent's generated output.
+- **Nothing baked in.** No tool-specific code ships. Every real integration is authored by the user, per project, via the template and the author-adapter skill.
+- **Patch files, not branches.** The agent's output is a `patch.diff` per variant, small and reviewable. Your working tree is never touched unless you explicitly set `guardrails.auto_apply: true`.
+- **Predicted vs measured.** `results.tsv` separates pre-validation composite scores (predicted) from real A/B test measurements (measured). The analysis notebook shows a calibration chart so you can catch drift between what the LLM judge loves and what real users actually prefer.
+- **NEVER STOP.** Like the original, the inner loop runs until you stop it. Overnight runs produce dozens of ranked variants.
 
 ## License
 

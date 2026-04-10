@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "abtest.json",
+  "description": "Normalized shapes for abtest adapter capabilities. Mirrors adapters/README.md:191-210. `list_experiments` is intentionally lenient (additionalProperties: true) because different abtest tools decorate summary rows with different extras (visitors, ci bounds, p, description). Everything else is strict so key renames fail loudly.",
+
+  "$defs": {
+
+    "_iso_8601": {
+      "description": "ISO-8601 timestamp (UTC Z or explicit offset). Permits fractional seconds.",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})$"
+    },
+
+    "_status": {
+      "description": "Canonical experiment status. Keep this list in sync with adapters/README.md:199.",
+      "type": "string",
+      "enum": ["running", "completed", "stopped"]
+    },
+
+    "push_variant": {
+      "description": "Return of push_variant(slug, patch_path, description). Confirms the experiment was created at 0% allocation.",
+      "type": "object",
+      "required": ["experiment_id", "adapter", "allocation", "started_at"],
+      "additionalProperties": false,
+      "properties": {
+        "experiment_id": { "type": "string", "minLength": 1 },
+        "adapter":       { "type": "string", "minLength": 1 },
+        "allocation":    { "type": "number", "minimum": 0, "maximum": 1 },
+        "started_at":    { "$ref": "#/$defs/_iso_8601" }
+      }
+    },
+
+    "get_experiment": {
+      "description": "Return of get_experiment(experiment_id). Full detail including stats once the tool has enough traffic. ended_at is null while running.",
+      "type": "object",
+      "required": ["experiment_id", "status", "visitors", "lift", "ci_low", "ci_high", "p", "started_at", "ended_at"],
+      "additionalProperties": true,
+      "properties": {
+        "experiment_id": { "type": "string", "minLength": 1 },
+        "status":        { "$ref": "#/$defs/_status" },
+        "visitors":      { "type": "integer", "minimum": 0 },
+        "lift":          { "type": "number" },
+        "ci_low":        { "type": "number" },
+        "ci_high":       { "type": "number" },
+        "p":             { "type": "number", "minimum": 0, "maximum": 1 },
+        "started_at":    { "$ref": "#/$defs/_iso_8601" },
+        "ended_at":      {
+          "oneOf": [
+            { "$ref": "#/$defs/_iso_8601" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+
+    "list_experiments": {
+      "description": "Return of list_experiments(). Array of summary rows. Lenient: additionalProperties allowed because tools decorate summaries with different extras.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["experiment_id", "status", "lift"],
+        "additionalProperties": true,
+        "properties": {
+          "experiment_id": { "type": "string", "minLength": 1 },
+          "name":          { "type": "string" },
+          "status":        { "$ref": "#/$defs/_status" },
+          "lift":          { "type": "number" }
+        }
+      }
+    },
+
+    "promote": {
+      "description": "Return of promote(experiment_id, allocation). Confirms the new allocation after manual ramp. allocation is in [0,1].",
+      "type": "object",
+      "required": ["experiment_id", "allocation"],
+      "additionalProperties": false,
+      "properties": {
+        "experiment_id": { "type": "string", "minLength": 1 },
+        "allocation":    { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+
+    "archive": {
+      "description": "Return of archive(experiment_id). Confirms the experiment was stopped/archived. Status must transition to `stopped`.",
+      "type": "object",
+      "required": ["experiment_id", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "experiment_id": { "type": "string", "minLength": 1 },
+        "status":        { "type": "string", "enum": ["stopped", "archived"] }
+      }
+    }
+
+  }
+}

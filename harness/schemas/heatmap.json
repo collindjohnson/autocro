@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "heatmap.json",
+  "description": "Normalized shapes for heatmap adapter capabilities. Mirrors adapters/README.md:170-189 (normalized return shapes, heatmap section). Note: fixture files are multiplexed by path (object keyed on path with arrays as values); adapter ## read demultiplexes and returns the per-path shape below. The validator always checks the demultiplexed form — the per-capability return — not the raw fixture.",
+
+  "$defs": {
+
+    "page_attention": {
+      "description": "Return of page_attention(path). Single-object scroll/hotspot summary for one page.",
+      "type": "object",
+      "required": ["path", "scroll_depth_p50", "scroll_depth_p90", "hotspots"],
+      "additionalProperties": false,
+      "properties": {
+        "path":             { "type": "string", "minLength": 1 },
+        "scroll_depth_p50": { "type": "number", "minimum": 0, "maximum": 1 },
+        "scroll_depth_p90": { "type": "number", "minimum": 0, "maximum": 1 },
+        "hotspots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["selector", "intensity"],
+            "additionalProperties": false,
+            "properties": {
+              "selector":  { "type": "string", "minLength": 1 },
+              "intensity": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      }
+    },
+
+    "click_map": {
+      "description": "Return of click_map(path, limit). Array of click aggregates for one page.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["selector", "clicks", "rage_click_rate"],
+        "additionalProperties": false,
+        "properties": {
+          "selector":        { "type": "string",  "minLength": 1 },
+          "clicks":          { "type": "integer", "minimum": 0 },
+          "rage_click_rate": { "type": "number",  "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+
+    "rage_clicks": {
+      "description": "Return of rage_clicks(path, limit). Array of rage-click events for one page.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["selector", "count", "sample_note"],
+        "additionalProperties": false,
+        "properties": {
+          "selector":    { "type": "string",  "minLength": 1 },
+          "count":       { "type": "integer", "minimum": 0 },
+          "sample_note": { "type": "string" }
+        }
+      }
+    },
+
+    "session_sample": {
+      "description": "Return of session_sample(path, n). Array of session summaries for one page. MUST contain metadata only — never actual recording bodies.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["session_id", "duration_s", "events", "goal_reached", "notable"],
+        "additionalProperties": false,
+        "properties": {
+          "session_id":   { "type": "string",  "minLength": 1 },
+          "duration_s":   { "type": "number",  "minimum": 0 },
+          "events":       { "type": "integer", "minimum": 0 },
+          "goal_reached": { "type": "boolean" },
+          "notable":      { "type": "string" }
+        }
+      }
+    }
+
+  }
+}

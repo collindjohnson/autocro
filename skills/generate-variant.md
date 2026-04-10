@@ -1,0 +1,135 @@
+# Skill: generate-variant
+
+Turn a selected hypothesis into a real, git-applyable patch against the parent project's HEAD, and scaffold the variant folder under `variants/`.
+
+## Inputs
+
+- A single hypothesis object from `skills/hypothesize.md`.
+- The parent project's current HEAD (read via the guardrails allowlist).
+- `config.guardrails` (deny_globs, max_diff_lines, auto_apply).
+
+## Output
+
+A new directory `autoresearch-web/variants/vNNNN-<kebab-slug>/` containing:
+
+- `hypothesis.md` — the full hypothesis, including data citations and predicted lift.
+- `patch.diff` — the git-applyable diff against parent HEAD (unified format).
+- `sources/` — optional, raw adapter responses that informed the hypothesis (if they exist as files, copy them here; if they were returned inline, dump them as JSON).
+- `notes.md` — initial note with the iteration number, research direction, and any sub-variants you considered and rejected.
+
+Do NOT write `pre-validation.json` or `experiment.json` from this skill — those come from `pre-validate.md` and `push-experiment.md`.
+
+## Slug rules
+
+- Format: `v{iter:04d}-{kebab-case}` where `iter` is the next sequential number past the highest existing `variants/v*/` folder, and `kebab-case` is a 2-5 word slug derived from the hypothesis summary.
+- Good: `v0042-pricing-cta-specificity`, `v0043-hero-social-proof`
+- Bad: `v42-change`, `variant_42`, `v0042-REPLACE-LEARN-MORE-BUTTON-WITH-START-FREE-TRIAL`
+
+## Patch generation procedure
+
+1. **Read the target files.** Use the guardrails `read_globs` allowlist. If any file you need is not in the allowlist, stop and report the issue in `notes.md` — do NOT expand the allowlist silently.
+
+2. **Check deny_globs mechanically.** Before editing any file, pipe the list of candidate target paths (one per line) through `harness/check_path.py`:
+
+   ```bash
+   printf '%s\n' "${target_paths[@]}" \
+     | python3 autoresearch-web/harness/check_path.py \
+         --config-json /tmp/autoresearch-web-config.json \
+         --variant-slug "${slug}"
+   ```
+
+   `/tmp/autoresearch-web-config.json` is produced by `skills/setup-check.md` from `config.yaml` via `harness/yaml_to_json.py` and re-used throughout the run. If it doesn't exist, regenerate it from `config.yaml` before calling check_path.
+
+   Exit codes:
+   - **0** → all candidate paths are allowed; proceed.
+   - **2** → at least one path matched a `deny_glob`. Abort this variant entirely: write `notes.md` with `blocked by deny_glob <path>`, skip `patch.diff`, record `status=discarded` in `results.tsv`, and pick a different hypothesis.
+   - **3** → input error (missing config, bad JSON). Stop the whole run — this is a setup bug, not a variant decision.
+
+   Do NOT try to "work around" the deny list by finding a sibling file or renaming — the hypothesis is simply off-limits. Skip it.
+
+3. **No new dependencies.** If the change would require installing a new package (npm, yarn, pip, gem, etc.), abort. Do not edit `package.json`, `requirements.txt`, `Gemfile`, or any lockfile to add dependencies. You may edit these files only to change existing config values (never to add lines).
+
+4. **Write the patch.** Produce a unified diff against parent HEAD in the format `git apply` expects:
+   ```
+   diff --git a/<path> b/<path>
+   --- a/<path>
+   +++ b/<path>
+   @@ -<old> +<new> @@
+   ...
+   ```
+   Use real paths relative to the parent project root. Use minimum context (3 lines) unless the surrounding code is ambiguous.
+
+5. **Count `diff_lines`.** Add lines beginning with `+` (not `+++`), add lines beginning with `-` (not `---`). If `diff_lines > config.guardrails.max_diff_lines`, stop and report the overrun in `notes.md`. Do not truncate the patch — report the overrun so the inner loop can record `status=discarded`.
+
+6. **Sanity self-check.** Before writing `patch.diff`, re-read your proposed diff and confirm:
+   - It does not touch any file matching `deny_globs`.
+   - It does not add any new dependency.
+   - Every `@@` hunk header matches real line numbers in the target file.
+   - There are no debug statements (`console.log`, `print`, `debugger`) left in.
+   - There are no commented-out blocks of old code. Delete cleanly or not at all.
+   - The diff is syntactically valid for the target language (balanced braces, closed tags, valid HTML).
+
+7. **Write the files.** Create the variant folder, write `patch.diff`, `hypothesis.md`, and `notes.md`. Copy any raw adapter responses into `sources/` if they're available as local files.
+
+## hypothesis.md template
+
+```markdown
+# v{slug}
+
+**Research direction**: exploit | explore | recombine | focus
+**Iteration**: {n}
+
+## Summary
+
+{one-sentence hypothesis}
+
+## Proposed change
+
+{concrete description of what the patch does — file-by-file if it touches multiple}
+
+## Data citations
+
+- `<adapter_id>:<capability>`: {paraphrased data point, e.g. "/pricing has 4120 sessions/week with 0.9% conversion rate; bounce 67%"}
+- `<adapter_id>:<capability>`: {second data point if applicable}
+
+## Predicted lift band
+
+{low to high, e.g. "0.3% to 1.2% absolute conversion lift on /pricing"}
+
+## Reasoning
+
+{2-4 sentences connecting the cited data to the proposed change, referencing
+judge rubric items where relevant. Explicitly say why THIS change rather than
+a larger or smaller one.}
+
+## Simplicity rationale
+
+{why this is the right size of change — what was rejected as too small or too large}
+```
+
+## notes.md template
+
+```markdown
+# Notes for v{slug}
+
+- Iteration: {n}
+- Research direction: {exploit | explore | recombine | focus}
+- Rejected sub-variants considered this iteration:
+  - "{rejected alternative 1}" — {one-line reason}
+  - "{rejected alternative 2}" — {one-line reason}
+```
+
+## Failure modes and how to report them
+
+If generation fails, still create the variant folder and `notes.md`, but omit `patch.diff`. The inner loop will see the missing patch and record `status=crash`.
+
+- **Patch would touch deny_glob**: notes.md says "blocked by deny_glob <path>"; do not write patch.diff.
+- **Patch would add dependency**: notes.md says "blocked: requires new dep <name>"; do not write patch.diff.
+- **Patch exceeds max_diff_lines**: STILL write patch.diff so the inner loop's simplicity-review.md can log the exact count; notes.md says "oversized: {n} lines".
+- **Target file not in read_globs allowlist**: notes.md says "blocked: <path> outside read_globs"; do not write patch.diff.
+
+## Do not
+
+- Do not apply the patch to the parent's working tree. Patches live in `variants/` and are applied only by `pre-validate.md` in an out-of-tree worktree at `~/.cache/autoresearch-web/worktrees/<slug>/`, and only if `auto_apply: true` or Lighthouse is enabled.
+- Do not edit `autoresearch-web/program.md`, any file under `autoresearch-web/skills/`, any file under `autoresearch-web/adapters/`, or any file under `autoresearch-web/harness/`. Those are the human-iterated skill.
+- Do not edit `autoresearch-web/results.tsv` from this skill. Only the inner loop itself writes rows.

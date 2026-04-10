@@ -1,0 +1,74 @@
+{
+  "_comment": "Canned heatmap payload used by adapters/heatmap/fixture.md. Shapes match adapters/README.md. Deliberate patterns: low scroll depth on /, rage clicks on disabled submit button, attention clustered on nav not on CTA.",
+
+  "page_attention": [
+    {
+      "path": "/",
+      "scroll_depth_p50": 0.24,
+      "scroll_depth_p90": 0.61,
+      "hotspots": [
+        {"selector": "nav a[href='/pricing']", "intensity": 0.88},
+        {"selector": "nav a[href='/docs']",    "intensity": 0.71},
+        {"selector": ".hero h1",               "intensity": 0.42},
+        {"selector": ".btn-primary",           "intensity": 0.19}
+      ]
+    },
+    {
+      "path": "/pricing",
+      "scroll_depth_p50": 0.41,
+      "scroll_depth_p90": 0.74,
+      "hotspots": [
+        {"selector": ".plan.featured .price", "intensity": 0.82},
+        {"selector": ".plan.featured .btn",   "intensity": 0.34},
+        {"selector": ".plan:nth-child(4)",    "intensity": 0.12}
+      ]
+    },
+    {
+      "path": "/signup",
+      "scroll_depth_p50": 0.78,
+      "scroll_depth_p90": 0.92,
+      "hotspots": [
+        {"selector": "input[name='email']",    "intensity": 0.91},
+        {"selector": "input[name='phone']",    "intensity": 0.38},
+        {"selector": "input[name='country']",  "intensity": 0.24},
+        {"selector": "button[type='submit']",  "intensity": 0.96}
+      ]
+    }
+  ],
+
+  "click_map": {
+    "/": [
+      {"selector": "nav a[href='/pricing']", "clicks": 1840, "rage_click_rate": 0.0},
+      {"selector": ".btn-primary",           "clicks":  310, "rage_click_rate": 0.02},
+      {"selector": "nav a[href='/docs']",    "clicks":  920, "rage_click_rate": 0.0}
+    ],
+    "/pricing": [
+      {"selector": ".plan.featured .btn", "clicks": 420, "rage_click_rate": 0.03},
+      {"selector": ".plan:nth-child(4)",  "clicks":  62, "rage_click_rate": 0.01}
+    ],
+    "/signup": [
+      {"selector": "button[type='submit']", "clicks": 1240, "rage_click_rate": 0.47},
+      {"selector": "input[name='email']",   "clicks":  980, "rage_click_rate": 0.01}
+    ]
+  },
+
+  "rage_clicks": {
+    "/signup": [
+      {"selector": "button[type='submit']", "count": 582, "sample_note": "users clicking the disabled submit button repeatedly; most sessions then abandon"}
+    ],
+    "/pricing": [
+      {"selector": ".plan.featured .btn", "count": 14, "sample_note": "users clicking the Learn more button on the team tier — may expect purchase flow"}
+    ]
+  },
+
+  "session_sample": {
+    "/signup": [
+      {"session_id": "s_f1a4", "duration_s": 142, "events": 63, "goal_reached": false,
+       "notable": "filled 8 of 11 fields, abandoned at phone number"},
+      {"session_id": "s_92bc", "duration_s":  38, "events":  9, "goal_reached": false,
+       "notable": "saw form, scrolled, left immediately"},
+      {"session_id": "s_e047", "duration_s": 218, "events": 88, "goal_reached": false,
+       "notable": "filled all fields, rage-clicked disabled submit 7 times, abandoned"}
+    ]
+  }
+}
