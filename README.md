@@ -1,4 +1,4 @@
-# autocro
+# Auto Conversion Rate Optimization (CRO)
 
 Autonomous conversion rate optimization research as a drop-in folder for any website project.
 
