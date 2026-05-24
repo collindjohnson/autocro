@@ -65,18 +65,7 @@ tools, pre-validated by an LLM judge panel and heuristic scoring, and
 optionally already queued as a 0%-allocation experiment in whichever A/B
 testing tool you pointed it at.
 
-This fork ([Virdis-Agency/autocro](https://github.com/Virdis-Agency/autocro))
-is what we run in production at Virdis. Over time we'll publish:
-
-- **Production-tested adapter playbooks** for the tools we use most — PostHog
-  (analytics + experiments), Microsoft Clarity (heatmaps), GrowthBook, and
-  others as we wire them up.
-- **Hypothesis seeds and judge-rubric tuning** for SaaS marketing sites,
-  pricing pages, and onboarding funnels.
-- **Anonymized case studies** from running AutoCRO against real client sites.
-
-If you want AutoCRO running on your own site without standing it up yourself,
-it's part of our CRO engagement — see [virdis.io](https://virdis.io).
+If you want AutoCRO running on your own site without standing it up yourself - see [virdis.io](https://virdis.io).
 
 ## Why we forked
 
@@ -90,17 +79,6 @@ The autoresearch architecture — a tight `program.md` skill, a
 memory — is exactly the right shape for that problem. AutoCRO retargets it
 from LLM pretraining at a website's `app/` and `components/` directories.
 The agent does the staring; we do the judgment.
-
-We forked so we can:
-
-1. **Own the adapters our team relies on** and ship improvements without
-   waiting on upstream.
-2. **Keep our internal hypothesis libraries and rubric tuning** in one place,
-   versioned alongside the framework that consumes them.
-3. **Run it against [virdis.io](https://virdis.io) itself** — the agency site
-   you're reading about *is* the first parent project this fork operates on.
-
-We follow upstream and contribute fixes back when they're generally useful.
 
 ## About Virdis
 
