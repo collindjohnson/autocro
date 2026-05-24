@@ -10,6 +10,8 @@ name = "autocro"
 version = "0.2.0"
 description = "Autonomous conversion rate optimization research as a drop-in folder for any website project."
 readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = []
 
